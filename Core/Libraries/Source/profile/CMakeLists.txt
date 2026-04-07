@@ -1,0 +1,46 @@
+set(PROFILE_SRC
+    "internal_cmd.h"
+    "internal_funclevel.h"
+    "internal_highlevel.h"
+    "internal_result.h"
+    "internal.h"
+    "profile_cmd.cpp"
+    "profile_doc.h"
+    "profile_funclevel.cpp"
+    "profile_funclevel.h"
+    "profile_highlevel.cpp"
+    "profile_highlevel.h"
+    "profile_result.cpp"
+    "profile_result.h"
+    "profile.cpp"
+    "profile.h"
+)
+
+add_library(core_profile STATIC)
+
+target_sources(core_profile PRIVATE ${PROFILE_SRC})
+
+target_include_directories(core_profile INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+if(EMSCRIPTEN)
+    target_precompile_headers(core_profile PRIVATE
+        [["Utility/CppMacros.h"]] # Must be first, to be removed when abandoning VC6
+        [["osdep.h"]]
+        "profile.h"
+        "internal.h"
+    )
+else()
+    target_precompile_headers(core_profile PRIVATE
+        [["Utility/CppMacros.h"]] # Must be first, to be removed when abandoning VC6
+        "profile.h"
+        "internal.h"
+        <windows.h>
+    )
+endif()
+
+target_link_libraries(core_profile PRIVATE
+    core_wwcommon
+    corei_always
+)

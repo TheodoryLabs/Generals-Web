@@ -1,0 +1,1199 @@
+/*
+**  GeneralsX Web Port — Minimal d3d8.h stub for Emscripten
+**
+**  Provides the D3D8 COM interfaces as empty stubs. The actual rendering
+**  is handled by the GLES3 wrapper (gles3_wrapper.h/cpp).
+**
+**  GeneralsX @feature WebPort 09/03/2026
+*/
+
+#pragma once
+
+#ifndef __EMSCRIPTEN_D3D8_H
+#define __EMSCRIPTEN_D3D8_H
+
+#include "d3d8caps.h"
+#include "d3d8types.h"
+#include "windows_base.h"
+#include <vector>
+#include <cstdint>
+// Forward declaration — defined in gles3_wrapper.cpp (which has SDL access)
+void GLES3_Swap_Buffers();
+
+#define D3DCURSOR_IMMEDIATE_UPDATE 0x00000001L
+
+#define D3DUSAGE_POINTS 0x00000040L
+
+#define D3DVSD_END() 0xFFFFFFFF
+#define D3DVSD_STREAM(streamNumber) (0x10000000 | ((streamNumber) << 24))
+#define D3DVSD_REG(regNumber, dataType)                                        \
+  (0x20000000 | ((dataType) << 24) | (regNumber))
+
+enum {
+  D3DVSDT_FLOAT1 = 0,
+  D3DVSDT_FLOAT2 = 1,
+  D3DVSDT_FLOAT3 = 2,
+  D3DVSDT_FLOAT4 = 3,
+  D3DVSDT_D3DCOLOR = 4,
+};
+
+/* Forward-declare D3DGAMMARAMP (used by IDirect3DDevice8) */
+#ifndef WORD
+typedef unsigned short WORD;
+#endif
+typedef struct _D3DGAMMARAMP {
+  WORD red[256];
+  WORD green[256];
+  WORD blue[256];
+} D3DGAMMARAMP;
+
+/* IUnknown base — minimal COM interface for D3D8 objects */
+#ifndef __IUnknown_FWD_DEFINED__
+#define __IUnknown_FWD_DEFINED__
+typedef struct IUnknown IUnknown;
+#endif
+
+/* REFIID / GUID stub */
+#ifndef GUID_DEFINED
+#define GUID_DEFINED
+typedef struct _GUID {
+  uint32_t Data1;
+  uint16_t Data2;
+  uint16_t Data3;
+  uint8_t Data4[8];
+} GUID;
+typedef GUID IID;
+typedef const GUID &REFIID;
+#endif
+
+/* IUnknown — base COM interface */
+#ifndef __IUnknown_INTERFACE_DEFINED__
+#define __IUnknown_INTERFACE_DEFINED__
+struct IUnknown {
+  virtual HRESULT QueryInterface(REFIID riid, void **ppvObject) = 0;
+  virtual ULONG AddRef() = 0;
+  virtual ULONG Release() = 0;
+};
+#endif
+
+/* Forward declarations for D3D8 interfaces */
+struct IDirect3D8;
+struct IDirect3DDevice8;
+struct IDirect3DTexture8;
+struct IDirect3DSurface8;
+struct IDirect3DVertexBuffer8;
+struct IDirect3DIndexBuffer8;
+struct IDirect3DBaseTexture8;
+
+/* ===================================================================
+ * IDirect3DSurface8
+ * =================================================================== */
+struct IDirect3DSurface8 : public IUnknown {
+  virtual HRESULT GetDesc(D3DSURFACE_DESC *pDesc) = 0;
+  virtual HRESULT LockRect(D3DLOCKED_RECT *pLockedRect, const RECT *pRect,
+                           DWORD Flags) = 0;
+  virtual HRESULT UnlockRect() = 0;
+};
+
+/* ===================================================================
+ * IDirect3DBaseTexture8
+ * =================================================================== */
+struct IDirect3DBaseTexture8 : public IUnknown {
+  virtual DWORD GetLevelCount() = 0;
+  virtual DWORD GetPriority() = 0;
+  virtual DWORD SetPriority(DWORD PriorityNew) = 0;
+  virtual DWORD SetLOD(DWORD LODNew) = 0;
+  virtual DWORD GetLOD() = 0;
+};
+
+/* ===================================================================
+ * IDirect3DTexture8
+ * =================================================================== */
+struct IDirect3DTexture8 : public IDirect3DBaseTexture8 {
+  virtual HRESULT GetSurfaceLevel(UINT Level,
+                                  IDirect3DSurface8 **ppSurfaceLevel) = 0;
+  virtual HRESULT LockRect(UINT Level, D3DLOCKED_RECT *pLockedRect,
+                           const RECT *pRect, DWORD Flags) = 0;
+  virtual HRESULT UnlockRect(UINT Level) = 0;
+  virtual HRESULT GetLevelDesc(UINT Level, D3DSURFACE_DESC *pDesc) = 0;
+};
+
+/* ===================================================================
+ * IDirect3DVertexBuffer8
+ * =================================================================== */
+struct IDirect3DVertexBuffer8 : public IUnknown {
+  virtual HRESULT Lock(UINT OffsetToLock, UINT SizeToLock, BYTE **ppbData,
+                       DWORD Flags) = 0;
+  virtual HRESULT Unlock() = 0;
+};
+
+/* ===================================================================
+ * IDirect3DIndexBuffer8
+ * =================================================================== */
+struct IDirect3DIndexBuffer8 : public IUnknown {
+  virtual HRESULT Lock(UINT OffsetToLock, UINT SizeToLock, BYTE **ppbData,
+                       DWORD Flags) = 0;
+  virtual HRESULT Unlock() = 0;
+};
+
+/* ===================================================================
+ * IDirect3DDevice8 — primary rendering interface (stub)
+ * =================================================================== */
+struct IDirect3DDevice8 : public IUnknown {
+  virtual HRESULT GetDirect3D(IDirect3D8 **ppD3D8) = 0;
+  virtual HRESULT TestCooperativeLevel() = 0;
+  virtual HRESULT GetDeviceCaps(D3DCAPS8 *pCaps) = 0;
+  virtual HRESULT GetDisplayMode(D3DDISPLAYMODE *pMode) = 0;
+  virtual HRESULT Reset(D3DPRESENT_PARAMETERS *pParams) = 0;
+  virtual HRESULT Present(const RECT *pSrc, const RECT *pDst, void *hDstWnd,
+                          const RGNDATA *pDirtyRgn) = 0;
+  virtual HRESULT Clear(DWORD Count, const D3DRECT *pRects, DWORD Flags,
+                        D3DCOLOR Color, float Z, DWORD Stencil) = 0;
+  virtual HRESULT BeginScene() = 0;
+  virtual HRESULT EndScene() = 0;
+  virtual HRESULT SetTransform(D3DTRANSFORMSTATETYPE State,
+                               const D3DMATRIX *pMatrix) = 0;
+  virtual HRESULT GetTransform(D3DTRANSFORMSTATETYPE State,
+                               D3DMATRIX *pMatrix) = 0;
+  virtual HRESULT SetRenderState(D3DRENDERSTATETYPE State, DWORD Value) = 0;
+  virtual HRESULT GetRenderState(D3DRENDERSTATETYPE State, DWORD *pValue) = 0;
+  virtual HRESULT SetTexture(DWORD Stage, IDirect3DBaseTexture8 *pTexture) = 0;
+  virtual HRESULT SetTextureStageState(DWORD Stage,
+                                       D3DTEXTURESTAGESTATETYPE Type,
+                                       DWORD Value) = 0;
+  virtual HRESULT SetLight(DWORD Index, const D3DLIGHT8 *pLight) = 0;
+  virtual HRESULT LightEnable(DWORD Index, BOOL Enable) = 0;
+  virtual HRESULT SetMaterial(const D3DMATERIAL8 *pMaterial) = 0;
+  virtual HRESULT SetViewport(const D3DVIEWPORT8 *pViewport) = 0;
+  virtual HRESULT GetViewport(D3DVIEWPORT8 *pViewport) = 0;
+  virtual HRESULT SetStreamSource(UINT StreamNumber,
+                                  IDirect3DVertexBuffer8 *pStreamData,
+                                  UINT Stride) = 0;
+  virtual HRESULT SetIndices(IDirect3DIndexBuffer8 *pIndexData,
+                             UINT BaseVertexIndex) = 0;
+  virtual HRESULT SetVertexShader(DWORD Handle) = 0;
+  virtual HRESULT SetPixelShader(DWORD Handle) = 0;
+  virtual HRESULT DrawPrimitive(D3DPRIMITIVETYPE PrimType, UINT StartVertex,
+                                UINT PrimCount) = 0;
+  virtual HRESULT DrawPrimitiveUP(D3DPRIMITIVETYPE PrimType, UINT PrimCount,
+                                  const void *pVertexStreamZeroData,
+                                  UINT VertexStreamZeroStride) = 0;
+  virtual HRESULT DrawIndexedPrimitive(D3DPRIMITIVETYPE PrimType, UINT MinIndex,
+                                       UINT NumVertices, UINT StartIndex,
+                                       UINT PrimCount) = 0;
+  virtual HRESULT DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE PrimType,
+                                         UINT MinVertexIndex, UINT NumVertices,
+                                         UINT PrimCount, const void *pIndexData,
+                                         D3DFORMAT IndexDataFormat,
+                                         const void *pVertexStreamZeroData,
+                                         UINT VertexStreamZeroStride) = 0;
+  virtual HRESULT CreateTexture(UINT Width, UINT Height, UINT Levels,
+                                DWORD Usage, D3DFORMAT Format, D3DPOOL Pool,
+                                IDirect3DTexture8 **ppTexture) = 0;
+  virtual HRESULT CreateVertexBuffer(UINT Length, DWORD Usage, DWORD FVF,
+                                     D3DPOOL Pool,
+                                     IDirect3DVertexBuffer8 **ppVB) = 0;
+  virtual HRESULT CreateIndexBuffer(UINT Length, DWORD Usage, D3DFORMAT Format,
+                                    D3DPOOL Pool,
+                                    IDirect3DIndexBuffer8 **ppIB) = 0;
+  virtual HRESULT GetBackBuffer(UINT BackBuffer, DWORD Type,
+                                IDirect3DSurface8 **ppBackBuffer) = 0;
+  virtual HRESULT GetRenderTarget(IDirect3DSurface8 **ppRenderTarget) = 0;
+  virtual HRESULT SetRenderTarget(IDirect3DSurface8 *pRenderTarget,
+                                  IDirect3DSurface8 *pDepthStencil) = 0;
+  virtual HRESULT
+  GetDepthStencilSurface(IDirect3DSurface8 **ppZStencilSurface) = 0;
+  virtual HRESULT CopyRects(IDirect3DSurface8 *pSrc, const RECT *pSrcRectsArray,
+                            UINT cRects, IDirect3DSurface8 *pDst,
+                            const POINT *pDstPointsArray) = 0;
+  virtual HRESULT SetVertexShaderConstant(DWORD Register,
+                                          const void *pConstantData,
+                                          DWORD ConstantCount) = 0;
+  virtual HRESULT SetPixelShaderConstant(DWORD Register,
+                                         const void *pConstantData,
+                                         DWORD ConstantCount) = 0;
+  virtual HRESULT SetClipPlane(DWORD Index, const float *pPlane) = 0;
+  virtual HRESULT CreateImageSurface(UINT Width, UINT Height, D3DFORMAT Format,
+                                     IDirect3DSurface8 **ppSurface) = 0;
+  virtual HRESULT SetPaletteEntries(UINT PaletteNumber,
+                                    const PALETTEENTRY *pEntries) = 0;
+  virtual HRESULT SetCurrentTexturePalette(UINT PaletteNumber) = 0;
+  virtual HRESULT GetGammaRamp(D3DGAMMARAMP *pRamp) = 0;
+  virtual HRESULT SetGammaRamp(DWORD Flags, const D3DGAMMARAMP *pRamp) = 0;
+  virtual HRESULT CreateVertexShader(const DWORD *pDeclaration,
+                                     const DWORD *pFunction, DWORD *pHandle,
+                                     DWORD Usage) = 0;
+  virtual HRESULT DeleteVertexShader(DWORD Handle) = 0;
+  virtual HRESULT CreatePixelShader(const DWORD *pFunction, DWORD *pHandle) = 0;
+  virtual HRESULT DeletePixelShader(DWORD Handle) = 0;
+  virtual HRESULT ValidateDevice(DWORD *pNumPasses) = 0;
+  virtual HRESULT ResourceManagerDiscardBytes(DWORD Bytes) = 0;
+  virtual HRESULT UpdateTexture(IDirect3DBaseTexture8 *pSourceTexture,
+                                IDirect3DBaseTexture8 *pDestinationTexture) = 0;
+  virtual HRESULT GetFrontBuffer(IDirect3DSurface8 *pDestSurface) = 0;
+  virtual HRESULT
+  CreateAdditionalSwapChain(D3DPRESENT_PARAMETERS *pPresentationParameters,
+                            IDirect3DSwapChain8 **pSwapChain) = 0;
+  virtual UINT GetAvailableTextureMem() = 0;
+  virtual BOOL ShowCursor(BOOL bShow) = 0;
+  virtual HRESULT SetCursorProperties(UINT XHotSpot, UINT YHotSpot,
+                                      IDirect3DSurface8 *pCursorBitmap) = 0;
+  virtual void SetCursorPosition(int X, int Y, DWORD Flags) = 0;
+};
+
+/* ===================================================================
+ * IDirect3D8 — factory interface (stub)
+ * =================================================================== */
+struct IDirect3D8 : public IUnknown {
+  virtual UINT GetAdapterCount() = 0;
+  virtual HRESULT GetAdapterIdentifier(UINT Adapter, DWORD Flags,
+                                       D3DADAPTER_IDENTIFIER8 *pId) = 0;
+  virtual UINT GetAdapterModeCount(UINT Adapter) = 0;
+  virtual HRESULT EnumAdapterModes(UINT Adapter, UINT Mode,
+                                   D3DDISPLAYMODE *pMode) = 0;
+  virtual HRESULT GetAdapterDisplayMode(UINT Adapter,
+                                        D3DDISPLAYMODE *pMode) = 0;
+  virtual HRESULT CreateDevice(UINT Adapter, DWORD DeviceType,
+                               void *hFocusWindow, DWORD BehaviorFlags,
+                               D3DPRESENT_PARAMETERS *pParams,
+                               IDirect3DDevice8 **ppDevice) = 0;
+  virtual HRESULT GetDeviceCaps(UINT Adapter, DWORD DeviceType,
+                                D3DCAPS8 *pCaps) = 0;
+  virtual HRESULT CheckDeviceFormat(UINT Adapter, DWORD DeviceType,
+                                    DWORD AdapterFormat, DWORD Usage,
+                                    DWORD RType, DWORD CheckFormat) = 0;
+  virtual HRESULT CheckDeviceType(UINT Adapter, DWORD DeviceType,
+                                  DWORD DisplayFormat, DWORD BackBufferFormat,
+                                  int Windowed) = 0;
+  virtual HRESULT CheckDeviceMultiSampleType(UINT Adapter, DWORD DeviceType,
+                                             DWORD SurfaceFormat, int Windowed,
+                                             DWORD MultiSampleType) = 0;
+  virtual HRESULT CheckDepthStencilMatch(UINT Adapter, DWORD DeviceType,
+                                         DWORD AdapterFormat,
+                                         DWORD RenderTargetFormat,
+                                         DWORD DepthStencilFormat) = 0;
+};
+
+/* Direct3DCreate8 — entry point (our GLES3 wrapper implements this) */
+#ifdef __cplusplus
+extern "C" {
+#endif
+IDirect3D8 *Direct3DCreate8(UINT SDKVersion);
+#ifdef __cplusplus
+}
+#endif
+
+/* D3D clear flags */
+#define D3DCLEAR_TARGET 0x00000001L
+#define D3DCLEAR_ZBUFFER 0x00000002L
+#define D3DCLEAR_STENCIL 0x00000004L
+
+/* Device types */
+#define D3DDEVTYPE_HAL 1
+#define D3DDEVTYPE_REF 2
+
+/* Create flags */
+#define D3DCREATE_SOFTWARE_VERTEXPROCESSING 0x00000020L
+#define D3DCREATE_HARDWARE_VERTEXPROCESSING 0x00000040L
+#define D3DCREATE_MIXED_VERTEXPROCESSING 0x00000080L
+
+/* Adapter */
+#define D3DADAPTER_DEFAULT 0
+
+/* IDirect3DSwapChain8 — stub */
+struct IDirect3DSwapChain8 : public IUnknown {
+  virtual HRESULT Present(const RECT *pSrc, const RECT *pDst, void *hDstWnd,
+                          const RGNDATA *pDirtyRgn) = 0;
+  virtual HRESULT GetBackBuffer(UINT BackBuffer, DWORD Type,
+                                IDirect3DSurface8 **ppBackBuffer) = 0;
+};
+
+/* LP pointer typedefs */
+typedef IDirect3D8 *LPDIRECT3D8;
+typedef IDirect3DDevice8 *LPDIRECT3DDEVICE8;
+typedef IDirect3DTexture8 *LPDIRECT3DTEXTURE8;
+typedef IDirect3DSurface8 *LPDIRECT3DSURFACE8;
+typedef IDirect3DVertexBuffer8 *LPDIRECT3DVERTEXBUFFER8;
+typedef IDirect3DIndexBuffer8 *LPDIRECT3DINDEXBUFFER8;
+typedef IDirect3DBaseTexture8 *LPDIRECT3DBASETEXTURE8;
+typedef IDirect3DSwapChain8 *LPDIRECT3DSWAPCHAIN8;
+
+/* Cube and Volume texture stubs */
+struct IDirect3DCubeTexture8 : public IDirect3DBaseTexture8 {
+  virtual HRESULT LockRect(DWORD FaceType, UINT Level,
+                           D3DLOCKED_RECT *pLockedRect, const RECT *pRect,
+                           DWORD Flags) = 0;
+  virtual HRESULT UnlockRect(DWORD FaceType, UINT Level) = 0;
+  virtual HRESULT GetLevelDesc(UINT Level, D3DSURFACE_DESC *pDesc) = 0;
+  virtual HRESULT GetCubeMapSurface(DWORD FaceType, UINT Level,
+                                    IDirect3DSurface8 **ppSurface) = 0;
+};
+
+struct IDirect3DVolumeTexture8 : public IDirect3DBaseTexture8 {
+  virtual HRESULT GetLevelDesc(UINT Level, D3DVOLUME_DESC *pDesc) = 0;
+  virtual HRESULT LockBox(UINT Level, D3DLOCKED_BOX *pLockedVolume,
+                          const void *pBox, DWORD Flags) = 0;
+  virtual HRESULT UnlockBox(UINT Level) = 0;
+};
+
+typedef IDirect3DCubeTexture8 *LPDIRECT3DCUBETEXTURE8;
+typedef IDirect3DVolumeTexture8 *LPDIRECT3DVOLUMETEXTURE8;
+
+/* Additional D3DERR codes */
+#define D3DERR_DEVICELOST ((HRESULT)0x88760868L)
+#define D3DERR_DEVICENOTRESET ((HRESULT)0x88760869L)
+#define D3DERR_NOTAVAILABLE ((HRESULT)0x8876086AL)
+#define D3DERR_INVALIDCALL ((HRESULT)0x8876086CL)
+
+/* Presentation interval */
+#define D3DPRESENT_INTERVAL_DEFAULT 0x00000000L
+#define D3DPRESENT_INTERVAL_ONE 0x00000001L
+#define D3DPRESENT_INTERVAL_IMMEDIATE 0x80000000L
+
+/* Resource types */
+#define D3DRTYPE_SURFACE 1
+#define D3DRTYPE_TEXTURE 3
+#define D3DRTYPE_CUBETEXTURE 5
+
+/* Backbuffer types */
+#define D3DBACKBUFFER_TYPE_MONO 0
+
+/* Gamma Ramp flags */
+#define D3DSGR_NO_CALIBRATION 0x00000000
+#define D3DSGR_CALIBRATE 0x00000001
+
+
+#include "d3dx8core.h"
+#include "d3dx8math.h"
+#ifdef __EMSCRIPTEN__
+
+#include "../gles3_wrapper.h"
+#include "../gles3_fvf.h"
+
+// Proper COM-style refcounting for heap-allocated D3D objects.
+// AddRef increments, Release decrements and deletes at zero.
+// Use DUMMY_IUNKNOWN_SINGLETON for objects that must never be deleted
+// (e.g. static/stack-allocated objects — none exist here currently).
+#define DUMMY_IUNKNOWN \
+    ULONG m_comRefCount = 1; \
+    virtual HRESULT QueryInterface(REFIID, void **) override { return 0; } \
+    virtual ULONG AddRef() override { return ++m_comRefCount; } \
+    virtual ULONG Release() override { \
+        ULONG r = --m_comRefCount; \
+        if (r == 0) { delete this; } \
+        return r; \
+    }
+
+#define DUMMY_IBASETEXTURE8 \
+    virtual DWORD GetLevelCount() override { return 1; } \
+    virtual DWORD GetPriority() override { return 0; } \
+    virtual DWORD SetPriority(DWORD PriorityNew) override { return 0; } \
+    virtual DWORD SetLOD(DWORD LODNew) override { return 0; } \
+    virtual DWORD GetLOD() override { return 0; }
+
+// ---------------------------------------------------------------------------
+// Bytes-per-pixel for each D3DFORMAT used by the game
+// ---------------------------------------------------------------------------
+static inline UINT D3DFmt_BPP(D3DFORMAT fmt) {
+    switch (fmt) {
+        case D3DFMT_A8R8G8B8: case D3DFMT_X8R8G8B8: return 4;
+        case D3DFMT_R8G8B8:   return 3;
+        case D3DFMT_R5G6B5:   case D3DFMT_A1R5G5B5: case D3DFMT_A4R4G4B4:
+        case D3DFMT_A8L8:     case D3DFMT_V8U8:     return 2;
+        case D3DFMT_A8:       case D3DFMT_L8:       case D3DFMT_P8:        return 1;
+        default:              return 4;  // safe default
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CPU-buffer-backed surface — returned by GetSurfaceLevel / CreateImageSurface.
+// Release() deletes this object since it's always heap-allocated.
+// ---------------------------------------------------------------------------
+struct Emscripten_IDirect3DSurface8 : public IDirect3DSurface8 {
+    UINT   Width;
+    UINT   Height;
+    UINT   BytesPerPixel;
+    D3DFORMAT Format;
+    std::vector<uint8_t> Pixels;
+
+    Emscripten_IDirect3DSurface8()
+        : Width(0), Height(0), BytesPerPixel(4), Format(D3DFMT_A8R8G8B8) {}
+
+    Emscripten_IDirect3DSurface8(UINT w, UINT h, D3DFORMAT fmt)
+        : Width(w), Height(h), BytesPerPixel(D3DFmt_BPP(fmt)), Format(fmt)
+    {
+        Pixels.assign((size_t)w * h * BytesPerPixel, 0);
+    }
+
+    // Always heap-allocated — proper COM refcounting
+    ULONG m_comRefCount = 1;
+    virtual HRESULT QueryInterface(REFIID, void **) override { return 0; }
+    virtual ULONG   AddRef()  override { return ++m_comRefCount; }
+    virtual ULONG   Release() override {
+        ULONG r = --m_comRefCount;
+        if (r == 0) { delete this; }
+        return r;
+    }
+
+    virtual HRESULT GetDesc(D3DSURFACE_DESC *pDesc) override {
+        if (pDesc) {
+            pDesc->Format = Format;
+            pDesc->Width  = Width;
+            pDesc->Height = Height;
+        }
+        return 0;
+    }
+    virtual HRESULT LockRect(D3DLOCKED_RECT *pLockedRect, const RECT *,
+                             DWORD) override {
+        if (pLockedRect && !Pixels.empty()) {
+            pLockedRect->Pitch = (int)(Width * BytesPerPixel);
+            pLockedRect->pBits = Pixels.data();
+        } else if (pLockedRect) {
+            pLockedRect->Pitch = 0;
+            pLockedRect->pBits = nullptr;
+        }
+        return 0;
+    }
+    virtual HRESULT UnlockRect() override { return 0; }
+};
+
+// ---------------------------------------------------------------------------
+// CPU-buffer-backed texture — provides real memory for LockRect/UnlockRect.
+// GL upload happens lazily on first SetTexture call (or after dirty unlock).
+// ---------------------------------------------------------------------------
+struct Emscripten_IDirect3DTexture8 : public IDirect3DTexture8 {
+    UINT       Width, Height, LevelCount, BPP;
+    D3DFORMAT  Fmt;
+    bool       dirty;
+    GLuint     gl_tex_id;
+
+    struct MipLevel { UINT w, h; std::vector<uint8_t> pixels; };
+    std::vector<MipLevel> levels;
+
+    // Default ctor — 1×1 placeholder
+    Emscripten_IDirect3DTexture8()
+        : Width(1), Height(1), LevelCount(1), BPP(4),
+          Fmt(D3DFMT_A8R8G8B8), dirty(false), gl_tex_id(0)
+    { _alloc_levels(); }
+
+    // Dimensional ctor — called by CreateTexture / D3DXCreateTexture
+    Emscripten_IDirect3DTexture8(UINT w, UINT h, UINT lvls, D3DFORMAT fmt)
+        : Width(w ? w : 1), Height(h ? h : 1),
+          LevelCount(lvls ? lvls : _count_mips(w ? w : 1, h ? h : 1)),
+          BPP(D3DFmt_BPP(fmt)), Fmt(fmt), dirty(false), gl_tex_id(0)
+    { _alloc_levels(); }
+
+    ~Emscripten_IDirect3DTexture8() {
+        if (gl_tex_id) { glDeleteTextures(1, &gl_tex_id); gl_tex_id = 0; }
+    }
+
+    void _alloc_levels() {
+        levels.resize(LevelCount);
+        UINT mw = Width, mh = Height;
+        for (UINT i = 0; i < LevelCount; ++i) {
+            levels[i].w = mw; levels[i].h = mh;
+            levels[i].pixels.assign((size_t)mw * mh * BPP, 0);
+            if (mw > 1) mw >>= 1;
+            if (mh > 1) mh >>= 1;
+        }
+    }
+
+    static UINT _count_mips(UINT w, UINT h) {
+        UINT n = 1;
+        while (w > 1 || h > 1) { if (w > 1) w >>= 1; if (h > 1) h >>= 1; ++n; }
+        return n;
+    }
+
+    // Returns true if this texture format is DXT compressed.
+    static bool _is_dxt(D3DFORMAT fmt) {
+        // DXT1=827611204, DXT3=861165636, DXT5=894720068
+        return (fmt == (D3DFORMAT)827611204 ||
+                fmt == (D3DFORMAT)861165636 ||
+                fmt == (D3DFORMAT)894720068);
+    }
+
+    // Upload CPU pixels to a new GL texture and return its id.
+    //
+    // For DXT (compressed) textures: all mip levels stored in levels[] are
+    // uploaded individually with glCompressedTexImage2D so we don't rely on
+    // glGenerateMipmap from a compressed base level (unreliable in WebGL2).
+    //
+    // For uncompressed textures: Create_Texture uploads level 0 and calls
+    // glGenerateMipmap to auto-generate the rest.
+    GLuint Upload_To_GL() {
+        if (gl_tex_id) { glDeleteTextures(1, &gl_tex_id); gl_tex_id = 0; }
+        if (levels.empty() || levels[0].pixels.empty()) return 0;
+
+        bool dxt = _is_dxt(Fmt);
+
+        if (dxt && LevelCount > 1) {
+            // Pass mip_levels=1 so Create_Texture sets up the texture object
+            // without calling glGenerateMipmap (we upload each level below).
+            gl_tex_id = GLES3_TextureConverter::Create_Texture(
+                Width, Height, (unsigned int)Fmt,
+                1, levels[0].pixels.data());
+
+            // Ensure driver knows how many levels to expect
+            glBindTexture(GL_TEXTURE_2D, gl_tex_id);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, (int)LevelCount - 1);
+
+            GLenum internal_fmt = GLES3_TextureConverter::DX8_Format_To_GL_Internal(
+                (unsigned int)Fmt);
+            UINT mw = Width, mh = Height;
+            // Level 0 already uploaded; upload levels 1..N
+            for (UINT lvl = 1; lvl < LevelCount; ++lvl) {
+                if (mw > 1) mw >>= 1;
+                if (mh > 1) mh >>= 1;
+                if (levels[lvl].pixels.empty()) break;
+                UINT bsz = (internal_fmt ==
+                    GL_COMPRESSED_RGB_S3TC_DXT1_EXT) ? 8 : 16;
+                UINT data_size = ((mw + 3) / 4) * ((mh + 3) / 4) * bsz;
+                glCompressedTexImage2D(GL_TEXTURE_2D, (GLint)lvl,
+                    internal_fmt, (GLsizei)mw, (GLsizei)mh, 0,
+                    (GLsizei)data_size, levels[lvl].pixels.data());
+            }
+            // Now set mip filter (Create_Texture set GL_LINEAR since we
+            // passed mip_levels=1 — override it).
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                            GL_LINEAR_MIPMAP_LINEAR);
+        } else {
+            // Uncompressed (or single-mip DXT): let Create_Texture handle
+            // glGenerateMipmap if LevelCount > 1.
+            gl_tex_id = GLES3_TextureConverter::Create_Texture(
+                Width, Height, (unsigned int)Fmt,
+                (unsigned int)LevelCount, levels[0].pixels.data());
+        }
+
+        dirty = false;
+        return gl_tex_id;
+    }
+
+    DUMMY_IUNKNOWN
+
+    // Override GetLevelCount to return actual level count
+    virtual DWORD GetLevelCount() override { return (DWORD)LevelCount; }
+    virtual DWORD GetPriority()   override { return 0; }
+    virtual DWORD SetPriority(DWORD) override { return 0; }
+    virtual DWORD SetLOD(DWORD)   override { return 0; }
+    virtual DWORD GetLOD()        override { return 0; }
+
+    virtual HRESULT LockRect(UINT Level, D3DLOCKED_RECT *pLockedRect,
+                             const RECT *, DWORD) override {
+        if (!pLockedRect) return 0;
+        if (Level >= LevelCount || levels[Level].pixels.empty()) {
+            pLockedRect->pBits = nullptr;
+            pLockedRect->Pitch = 0;
+            return 0;
+        }
+        pLockedRect->pBits  = levels[Level].pixels.data();
+        pLockedRect->Pitch  = (int)(levels[Level].w * BPP);
+        return 0;
+    }
+
+    virtual HRESULT UnlockRect(UINT) override { dirty = true; return 0; }
+
+    virtual HRESULT GetSurfaceLevel(UINT Level, IDirect3DSurface8 **ppS) override {
+        if (!ppS) return 0;
+        UINT idx = (Level < LevelCount) ? Level : 0;
+        Emscripten_IDirect3DSurface8 *surf =
+            new Emscripten_IDirect3DSurface8(levels[idx].w, levels[idx].h, Fmt);
+        // Share the pixel data so locks on the surface see the same bytes
+        surf->Pixels = levels[idx].pixels;
+        surf->BytesPerPixel = BPP;
+        *ppS = surf;
+        return 0;
+    }
+
+    virtual HRESULT GetLevelDesc(UINT Level, D3DSURFACE_DESC *pDesc) override {
+        if (pDesc && Level < LevelCount) {
+            pDesc->Format = Fmt;
+            pDesc->Width  = levels[Level].w;
+            pDesc->Height = levels[Level].h;
+        }
+        return 0;
+    }
+};
+
+// ---------------------------------------------------------------------------
+// Vertex buffer — CPU-side byte buffer + GL VBO uploaded on demand
+// ---------------------------------------------------------------------------
+struct Emscripten_IDirect3DVertexBuffer8 : public IDirect3DVertexBuffer8 {
+    std::vector<uint8_t> data;
+    UINT  stride;    // set by SetStreamSource
+    GLuint gl_vbo;
+    bool dirty;
+
+    Emscripten_IDirect3DVertexBuffer8(UINT length = 0)
+        : stride(0), gl_vbo(0), dirty(false) {
+        data.resize(length, 0);
+    }
+    ~Emscripten_IDirect3DVertexBuffer8() {
+        if (gl_vbo) { glDeleteBuffers(1, &gl_vbo); gl_vbo = 0; }
+    }
+
+    DUMMY_IUNKNOWN
+
+    virtual HRESULT Lock(UINT OffsetToLock, UINT SizeToLock, BYTE **ppbData,
+                         DWORD Flags) override {
+        if (ppbData) *ppbData = data.data() + OffsetToLock;
+        return 0;
+    }
+    virtual HRESULT Unlock() override { dirty = true; return 0; }
+
+    // Upload CPU data to GL VBO and bind it
+    GLuint Upload_And_Bind() {
+        if (!gl_vbo) glGenBuffers(1, &gl_vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, gl_vbo);
+        if (dirty || true) {
+            glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)data.size(),
+                         data.data(), GL_DYNAMIC_DRAW);
+            dirty = false;
+        }
+        return gl_vbo;
+    }
+};
+
+// ---------------------------------------------------------------------------
+// Index buffer — CPU-side byte buffer + GL IBO uploaded on demand
+// ---------------------------------------------------------------------------
+struct Emscripten_IDirect3DIndexBuffer8 : public IDirect3DIndexBuffer8 {
+    std::vector<uint8_t> data;
+    GLuint gl_ibo;
+    bool dirty;
+
+    Emscripten_IDirect3DIndexBuffer8(UINT length = 0)
+        : gl_ibo(0), dirty(false) {
+        data.resize(length, 0);
+    }
+    ~Emscripten_IDirect3DIndexBuffer8() {
+        if (gl_ibo) { glDeleteBuffers(1, &gl_ibo); gl_ibo = 0; }
+    }
+
+    DUMMY_IUNKNOWN
+
+    virtual HRESULT Lock(UINT OffsetToLock, UINT SizeToLock, BYTE **ppbData,
+                         DWORD Flags) override {
+        if (ppbData) *ppbData = data.data() + OffsetToLock;
+        return 0;
+    }
+    virtual HRESULT Unlock() override { dirty = true; return 0; }
+
+    GLuint Upload_And_Bind() {
+        if (!gl_ibo) glGenBuffers(1, &gl_ibo);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gl_ibo);
+        if (dirty || true) {
+            glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)data.size(),
+                         data.data(), GL_DYNAMIC_DRAW);
+            dirty = false;
+        }
+        return gl_ibo;
+    }
+};
+
+struct Emscripten_IDirect3DSwapChain8 : public IDirect3DSwapChain8 {
+    DUMMY_IUNKNOWN
+    virtual HRESULT Present(const RECT *pSrc, const RECT *pDst, void *hDstWnd,
+                          const RGNDATA *pDirtyRgn) override { return 0; }
+    virtual HRESULT GetBackBuffer(UINT BackBuffer, DWORD Type,
+                                IDirect3DSurface8 **ppBackBuffer) override { return 0; }
+};
+
+struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
+    // ----- per-draw state -----
+    Emscripten_IDirect3DVertexBuffer8 *current_vb     = nullptr;
+    UINT                               current_stride  = 0;
+    DWORD                              current_fvf     = 0;   // set by SetVertexShader (FVF handle)
+    Emscripten_IDirect3DIndexBuffer8  *current_ib      = nullptr;
+    UINT                               base_vtx_index  = 0;
+
+    DUMMY_IUNKNOWN
+    virtual HRESULT GetDirect3D(IDirect3D8 **ppD3D8) override { return 0; }
+    virtual HRESULT TestCooperativeLevel() override { return 0; }
+    virtual HRESULT GetDeviceCaps(D3DCAPS8 *pCaps) override {
+        if (pCaps) {
+            memset(pCaps, 0, sizeof(*pCaps));
+            // WebGL/GLES3 safe capability values
+            pCaps->DevCaps             = D3DDEVCAPS_HWTRANSFORMANDLIGHT | D3DDEVCAPS_DRAWPRIMITIVES2;
+            pCaps->MaxTextureWidth     = 4096;
+            pCaps->MaxTextureHeight    = 4096;
+            pCaps->MaxVolumeExtent     = 256;
+            pCaps->MaxTextureRepeat    = 8192;
+            pCaps->MaxTextureAspectRatio = 0;   // 0 = no restriction
+            pCaps->MaxAnisotropy       = 4;
+            pCaps->MaxPointSize        = 256.0f;
+            pCaps->MaxPrimitiveCount   = 1048575;
+            pCaps->MaxVertexIndex      = 1048575;
+            pCaps->MaxStreams           = 16;
+            pCaps->MaxStreamStride     = 255;
+            pCaps->MaxSimultaneousTextures = 8;
+            pCaps->MaxTextureBlendStages   = 8;
+            pCaps->TextureOpCaps       = 0x03FFFFFF; // support all common tex ops
+            pCaps->RasterCaps          = D3DPRASTERCAPS_FOGTABLE | D3DPRASTERCAPS_FOGVERTEX |
+                                         D3DPRASTERCAPS_ZBIAS   | D3DPRASTERCAPS_WFOG;
+            pCaps->SrcBlendCaps        = 0x00003FFF;
+            pCaps->DestBlendCaps       = 0x00003FFF;
+            pCaps->TextureCaps         = D3DPTEXTURECAPS_PROJECTED | D3DPTEXTURECAPS_CUBEMAP;
+            pCaps->VertexShaderVersion = 0x0101;  // VS 1.1
+            pCaps->MaxVertexShaderConst = 96;
+            pCaps->PixelShaderVersion  = 0x0101;  // PS 1.1
+            pCaps->MaxPixelShaderValue = 1.0f;
+            pCaps->StencilCaps         = D3DSTENCILCAPS_KEEP | D3DSTENCILCAPS_REPLACE |
+                                         D3DSTENCILCAPS_INCRSAT | D3DSTENCILCAPS_DECRSAT |
+                                         D3DSTENCILCAPS_INCR    | D3DSTENCILCAPS_DECR;
+        }
+        return 0;
+    }
+    virtual HRESULT GetDisplayMode(D3DDISPLAYMODE *pMode) override { return 0; }
+    virtual HRESULT Reset(D3DPRESENT_PARAMETERS *pParams) override { return 0; }
+    virtual HRESULT Present(const RECT *pSrc, const RECT *pDst, void *hDstWnd,
+                          const RGNDATA *pDirtyRgn) override {
+        GLES3_Swap_Buffers();
+        return 0;
+    }
+    virtual HRESULT Clear(DWORD Count, const D3DRECT *pRects, DWORD Flags,
+                        D3DCOLOR Color, float Z, DWORD Stencil) override {
+        float r = ((Color >> 16) & 0xFF) / 255.0f;
+        float g = ((Color >>  8) & 0xFF) / 255.0f;
+        float b = ((Color      ) & 0xFF) / 255.0f;
+        float a = ((Color >> 24) & 0xFF) / 255.0f;
+        bool cc  = (Flags & D3DCLEAR_TARGET)  != 0;
+        bool czs = (Flags & (D3DCLEAR_ZBUFFER | D3DCLEAR_STENCIL)) != 0;
+        GLES3_Clear(cc, czs, r, g, b, a, Z, (unsigned int)Stencil);
+        return 0;
+    }
+    virtual HRESULT BeginScene() override { GLES3_Begin_Scene(); return 0; }
+    virtual HRESULT EndScene()   override { GLES3_End_Scene(false); return 0; }
+
+    // Map D3DTRANSFORMSTATETYPE → GLES3_TransformType
+    static unsigned int _d3dts_to_gles3(D3DTRANSFORMSTATETYPE s) {
+        switch ((unsigned int)s) {
+            case 2:   return GLES3_TS_VIEW;
+            case 3:   return GLES3_TS_PROJECTION;
+            case 256: return GLES3_TS_WORLD;
+            default:
+                if ((unsigned int)s >= 16 && (unsigned int)s <= 19)
+                    return GLES3_TS_TEXTURE0 + ((unsigned int)s - 16);
+                return GLES3_TS_WORLD;
+        }
+    }
+    virtual HRESULT SetTransform(D3DTRANSFORMSTATETYPE State,
+                               const D3DMATRIX *pMatrix) override {
+        if (pMatrix) GLES3_Set_Transform(_d3dts_to_gles3(State), &pMatrix->_11);
+        return 0;
+    }
+    virtual HRESULT GetTransform(D3DTRANSFORMSTATETYPE State,
+                               D3DMATRIX *pMatrix) override {
+        if (pMatrix) GLES3_Get_Transform(_d3dts_to_gles3(State), &pMatrix->_11);
+        return 0;
+    }
+    virtual HRESULT SetRenderState(D3DRENDERSTATETYPE State, DWORD Value) override {
+        GLES3_Set_Render_State((unsigned int)State, (unsigned int)Value);
+        return 0;
+    }
+    virtual HRESULT GetRenderState(D3DRENDERSTATETYPE State, DWORD *pValue) override { return 0; }
+    virtual HRESULT SetTexture(DWORD Stage, IDirect3DBaseTexture8 *pTexture) override {
+        Emscripten_IDirect3DTexture8 *t =
+            static_cast<Emscripten_IDirect3DTexture8 *>(pTexture);
+        if (t) {
+            if (t->gl_tex_id == 0 || t->dirty) t->Upload_To_GL();
+            GLES3_Set_Texture(Stage, t->gl_tex_id);
+        } else {
+            GLES3_Set_Texture(Stage, 0);
+        }
+        return 0;
+    }
+    virtual HRESULT SetTextureStageState(DWORD Stage,
+                                       D3DTEXTURESTAGESTATETYPE Type,
+                                       DWORD Value) override {
+        GLES3_Set_Texture_Stage_State((unsigned int)Stage,
+                                      (unsigned int)Type, (unsigned int)Value);
+        return 0;
+    }
+    virtual HRESULT SetLight(DWORD Index, const D3DLIGHT8 *pLight) override {
+        if (!pLight) return 0;
+        GLES3_Light gl;
+        gl.type          = pLight->Type;
+        gl.diffuse[0]    = pLight->Diffuse.r;  gl.diffuse[1]  = pLight->Diffuse.g;
+        gl.diffuse[2]    = pLight->Diffuse.b;  gl.diffuse[3]  = pLight->Diffuse.a;
+        gl.specular[0]   = pLight->Specular.r; gl.specular[1] = pLight->Specular.g;
+        gl.specular[2]   = pLight->Specular.b; gl.specular[3] = pLight->Specular.a;
+        gl.ambient[0]    = pLight->Ambient.r;  gl.ambient[1]  = pLight->Ambient.g;
+        gl.ambient[2]    = pLight->Ambient.b;  gl.ambient[3]  = pLight->Ambient.a;
+        gl.position[0]   = pLight->Position.x; gl.position[1] = pLight->Position.y;
+        gl.position[2]   = pLight->Position.z;
+        gl.direction[0]  = pLight->Direction.x;gl.direction[1] = pLight->Direction.y;
+        gl.direction[2]  = pLight->Direction.z;
+        gl.range = pLight->Range; gl.falloff = pLight->Falloff;
+        gl.attenuation0  = pLight->Attenuation0;
+        gl.attenuation1  = pLight->Attenuation1;
+        gl.attenuation2  = pLight->Attenuation2;
+        gl.theta = pLight->Theta; gl.phi = pLight->Phi;
+        GLES3_Set_Light((unsigned int)Index, &gl);
+        return 0;
+    }
+    virtual HRESULT LightEnable(DWORD Index, BOOL Enable) override {
+        GLES3_Enable_Light((unsigned int)Index, Enable != 0);
+        return 0;
+    }
+    virtual HRESULT SetMaterial(const D3DMATERIAL8 *pMaterial) override {
+        if (!pMaterial) return 0;
+        GLES3_Material m;
+        m.diffuse[0]  = pMaterial->Diffuse.r;  m.diffuse[1]  = pMaterial->Diffuse.g;
+        m.diffuse[2]  = pMaterial->Diffuse.b;  m.diffuse[3]  = pMaterial->Diffuse.a;
+        m.ambient[0]  = pMaterial->Ambient.r;  m.ambient[1]  = pMaterial->Ambient.g;
+        m.ambient[2]  = pMaterial->Ambient.b;  m.ambient[3]  = pMaterial->Ambient.a;
+        m.specular[0] = pMaterial->Specular.r; m.specular[1] = pMaterial->Specular.g;
+        m.specular[2] = pMaterial->Specular.b; m.specular[3] = pMaterial->Specular.a;
+        m.emissive[0] = pMaterial->Emissive.r; m.emissive[1] = pMaterial->Emissive.g;
+        m.emissive[2] = pMaterial->Emissive.b; m.emissive[3] = pMaterial->Emissive.a;
+        m.power = pMaterial->Power;
+        GLES3_Set_Material(&m);
+        return 0;
+    }
+    virtual HRESULT SetViewport(const D3DVIEWPORT8 *pViewport) override {
+        if (pViewport)
+            GLES3_Set_Viewport(pViewport->X, pViewport->Y,
+                               pViewport->Width, pViewport->Height,
+                               pViewport->MinZ, pViewport->MaxZ);
+        return 0;
+    }
+    virtual HRESULT GetViewport(D3DVIEWPORT8 *pViewport) override { return 0; }
+    virtual HRESULT SetStreamSource(UINT StreamNumber,
+                                  IDirect3DVertexBuffer8 *pStreamData,
+                                  UINT Stride) override {
+        current_vb     = static_cast<Emscripten_IDirect3DVertexBuffer8*>(pStreamData);
+        current_stride = Stride;
+        return 0;
+    }
+    virtual HRESULT SetIndices(IDirect3DIndexBuffer8 *pIndexData,
+                             UINT BaseVertexIndex) override {
+        current_ib       = static_cast<Emscripten_IDirect3DIndexBuffer8*>(pIndexData);
+        base_vtx_index   = BaseVertexIndex;
+        return 0;
+    }
+    virtual HRESULT SetVertexShader(DWORD Handle) override {
+        // In D3D8 fixed-function mode the "handle" is actually the FVF bitmask.
+        // Real programmable shader handles are >= 0xFFFE0000; ignore those for now.
+        if (Handle < 0xFFFE0000u)
+            current_fvf = Handle;
+        return 0;
+    }
+    virtual HRESULT SetPixelShader(DWORD Handle) override { return 0; }
+
+    // Helper: decode current FVF and apply vertex attrib pointers (VBO must be bound).
+    void _setup_vertex_attribs(UINT stride_override = 0) {
+        if (!current_fvf) return;
+        GLES3_FVFDecoder dec;
+        dec.Decode(current_fvf);
+        UINT stride = stride_override ? stride_override : current_stride;
+        if (stride == 0) stride = dec.Get_FVF_Size();
+        dec.Apply_Vertex_Attribs(stride);
+    }
+
+    virtual HRESULT DrawPrimitive(D3DPRIMITIVETYPE PrimType, UINT StartVertex,
+                                UINT PrimCount) override {
+        if (!current_vb || current_vb->data.empty()) return 0;
+        current_vb->Upload_And_Bind();
+        _setup_vertex_attribs();
+        GLES3_Draw_Arrays((unsigned int)PrimType, StartVertex, PrimCount);
+        return 0;
+    }
+
+    virtual HRESULT DrawPrimitiveUP(D3DPRIMITIVETYPE PrimType, UINT PrimCount,
+                                  const void *pVertexStreamZeroData,
+                                  UINT VertexStreamZeroStride) override {
+        if (!pVertexStreamZeroData || !PrimCount) return 0;
+        // Compute vertex count for this primitive type
+        unsigned int vertex_count = 0;
+        switch ((unsigned int)PrimType) {
+            case 4: vertex_count = PrimCount * 3; break; // TRIANGLELIST
+            case 5: vertex_count = PrimCount + 2; break; // TRIANGLESTRIP
+            case 6: vertex_count = PrimCount + 2; break; // TRIANGLEFAN
+            case 2: vertex_count = PrimCount * 2; break; // LINELIST
+            case 3: vertex_count = PrimCount + 1; break; // LINESTRIP
+            case 1: vertex_count = PrimCount;     break; // POINTLIST
+            default: vertex_count = PrimCount * 3; break;
+        }
+        GLuint tmp_vbo = 0;
+        glGenBuffers(1, &tmp_vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, tmp_vbo);
+        glBufferData(GL_ARRAY_BUFFER,
+                     (GLsizeiptr)(vertex_count * VertexStreamZeroStride),
+                     pVertexStreamZeroData, GL_DYNAMIC_DRAW);
+        _setup_vertex_attribs(VertexStreamZeroStride);
+        GLES3_Draw_Arrays((unsigned int)PrimType, 0, PrimCount);
+        glDeleteBuffers(1, &tmp_vbo);
+        return 0;
+    }
+
+    virtual HRESULT DrawIndexedPrimitive(D3DPRIMITIVETYPE PrimType, UINT MinIndex,
+                                       UINT NumVertices, UINT StartIndex,
+                                       UINT PrimCount) override {
+        if (!current_vb || current_vb->data.empty()) return 0;
+        if (!current_ib || current_ib->data.empty()) return 0;
+        current_vb->Upload_And_Bind();
+        current_ib->Upload_And_Bind();
+        _setup_vertex_attribs();
+        GLES3_Draw_Triangles((unsigned int)PrimType, StartIndex, PrimCount,
+                             MinIndex, NumVertices);
+        return 0;
+    }
+
+    virtual HRESULT DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE PrimType,
+                                         UINT MinVertexIndex, UINT NumVertices,
+                                         UINT PrimCount, const void *pIndexData,
+                                         D3DFORMAT IndexDataFormat,
+                                         const void *pVertexStreamZeroData,
+                                         UINT VertexStreamZeroStride) override {
+        if (!pVertexStreamZeroData || !pIndexData || !PrimCount) return 0;
+        unsigned int index_count = 0;
+        switch ((unsigned int)PrimType) {
+            case 4: index_count = PrimCount * 3; break; // TRIANGLELIST
+            case 5: index_count = PrimCount + 2; break; // TRIANGLESTRIP
+            case 2: index_count = PrimCount * 2; break; // LINELIST
+            case 3: index_count = PrimCount + 1; break; // LINESTRIP
+            case 1: index_count = PrimCount;     break; // POINTLIST
+            default: index_count = PrimCount * 3; break;
+        }
+        // Upload vertices
+        GLuint tmp_vbo = 0;
+        glGenBuffers(1, &tmp_vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, tmp_vbo);
+        glBufferData(GL_ARRAY_BUFFER,
+                     (GLsizeiptr)(NumVertices * VertexStreamZeroStride),
+                     pVertexStreamZeroData, GL_DYNAMIC_DRAW);
+        _setup_vertex_attribs(VertexStreamZeroStride);
+        // Upload indices (GLES3_Draw_Triangles expects GL_UNSIGNED_SHORT)
+        UINT idx_bytes = (IndexDataFormat == D3DFMT_INDEX16) ? 2 : 4;
+        GLuint tmp_ibo = 0;
+        glGenBuffers(1, &tmp_ibo);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, tmp_ibo);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                     (GLsizeiptr)(index_count * idx_bytes),
+                     pIndexData, GL_DYNAMIC_DRAW);
+        GLES3_Draw_Triangles((unsigned int)PrimType, 0, PrimCount,
+                             MinVertexIndex, NumVertices);
+        glDeleteBuffers(1, &tmp_vbo);
+        glDeleteBuffers(1, &tmp_ibo);
+        return 0;
+    }
+    virtual HRESULT CreateTexture(UINT Width, UINT Height, UINT Levels,
+                                DWORD Usage, D3DFORMAT Format, D3DPOOL Pool,
+                                IDirect3DTexture8 **ppTexture) override {
+        if (ppTexture)
+            *ppTexture = new Emscripten_IDirect3DTexture8(Width, Height, Levels, Format);
+        return 0;
+    }
+    virtual HRESULT CreateVertexBuffer(UINT Length, DWORD Usage, DWORD FVF,
+                                     D3DPOOL Pool,
+                                     IDirect3DVertexBuffer8 **ppVB) override { 
+        if (ppVB) *ppVB = new Emscripten_IDirect3DVertexBuffer8(Length);
+        return 0; 
+    }
+    virtual HRESULT CreateIndexBuffer(UINT Length, DWORD Usage, D3DFORMAT Format,
+                                    D3DPOOL Pool,
+                                    IDirect3DIndexBuffer8 **ppIB) override { 
+        if (ppIB) *ppIB = new Emscripten_IDirect3DIndexBuffer8(Length);
+        return 0; 
+    }
+    virtual HRESULT GetBackBuffer(UINT BackBuffer, DWORD Type,
+                                IDirect3DSurface8 **ppBackBuffer) override { 
+        *ppBackBuffer = new Emscripten_IDirect3DSurface8();
+        return 0; 
+    }
+    virtual HRESULT GetRenderTarget(IDirect3DSurface8 **ppRenderTarget) override { 
+        *ppRenderTarget = new Emscripten_IDirect3DSurface8();
+        return 0; 
+    }
+    virtual HRESULT SetRenderTarget(IDirect3DSurface8 *pRenderTarget,
+                                  IDirect3DSurface8 *pDepthStencil) override { return 0; }
+    virtual HRESULT
+  GetDepthStencilSurface(IDirect3DSurface8 **ppZStencilSurface) override { 
+        *ppZStencilSurface = new Emscripten_IDirect3DSurface8();
+        return 0; 
+    }
+    virtual HRESULT CopyRects(IDirect3DSurface8 *pSrc, const RECT *pSrcRectsArray,
+                            UINT cRects, IDirect3DSurface8 *pDst,
+                            const POINT *pDstPointsArray) override { return 0; }
+    virtual HRESULT SetVertexShaderConstant(DWORD Register,
+                                          const void *pConstantData,
+                                          DWORD ConstantCount) override { return 0; }
+    virtual HRESULT SetPixelShaderConstant(DWORD Register,
+                                         const void *pConstantData,
+                                         DWORD ConstantCount) override { return 0; }
+    virtual HRESULT SetClipPlane(DWORD Index, const float *pPlane) override { return 0; }
+    virtual HRESULT CreateImageSurface(UINT Width, UINT Height, D3DFORMAT Format,
+                                     IDirect3DSurface8 **ppSurface) override {
+        if (ppSurface)
+            *ppSurface = new Emscripten_IDirect3DSurface8(Width, Height, Format);
+        return 0;
+    }
+    virtual HRESULT SetPaletteEntries(UINT PaletteNumber,
+                                    const PALETTEENTRY *pEntries) override { return 0; }
+    virtual HRESULT SetCurrentTexturePalette(UINT PaletteNumber) override { return 0; }
+    virtual HRESULT GetGammaRamp(D3DGAMMARAMP *pRamp) override { return 0; }
+    virtual HRESULT SetGammaRamp(DWORD Flags, const D3DGAMMARAMP *pRamp) override { return 0; }
+    virtual HRESULT CreateVertexShader(const DWORD *pDeclaration,
+                                     const DWORD *pFunction, DWORD *pHandle,
+                                     DWORD Usage) override { return 0; }
+    virtual HRESULT DeleteVertexShader(DWORD Handle) override { return 0; }
+    virtual HRESULT CreatePixelShader(const DWORD *pFunction, DWORD *pHandle) override { return 0; }
+    virtual HRESULT DeletePixelShader(DWORD Handle) override { return 0; }
+    virtual HRESULT ValidateDevice(DWORD *pNumPasses) override { return 0; }
+    virtual HRESULT ResourceManagerDiscardBytes(DWORD Bytes) override { return 0; }
+    virtual HRESULT UpdateTexture(IDirect3DBaseTexture8 *pSourceTexture,
+                                IDirect3DBaseTexture8 *pDestinationTexture) override {
+        // For USE_MANAGED_TEXTURES builds this path isn't taken, but handle it anyway:
+        // copy CPU pixel data from source to dest and mark dest dirty.
+        Emscripten_IDirect3DTexture8 *src =
+            static_cast<Emscripten_IDirect3DTexture8 *>(pSourceTexture);
+        Emscripten_IDirect3DTexture8 *dst =
+            static_cast<Emscripten_IDirect3DTexture8 *>(pDestinationTexture);
+        if (src && dst && src->LevelCount == dst->LevelCount) {
+            for (UINT i = 0; i < src->LevelCount; ++i)
+                dst->levels[i].pixels = src->levels[i].pixels;
+            dst->dirty = true;
+        } else if (src) {
+            // dst may be null — upload src directly
+            src->Upload_To_GL();
+        }
+        return 0;
+    }
+    virtual HRESULT GetFrontBuffer(IDirect3DSurface8 *pDestSurface) override { return 0; }
+    virtual HRESULT
+  CreateAdditionalSwapChain(D3DPRESENT_PARAMETERS *pPresentationParameters,
+                            IDirect3DSwapChain8 **pSwapChain) override { return 0; }
+    virtual UINT GetAvailableTextureMem() override { return 0; }
+    virtual BOOL ShowCursor(BOOL bShow) override { return 0; }
+    virtual HRESULT SetCursorProperties(UINT XHotSpot, UINT YHotSpot,
+                                      IDirect3DSurface8 *pCursorBitmap) override { return 0; }
+    virtual void SetCursorPosition(int X, int Y, DWORD Flags) override {  }
+};
+
+struct Emscripten_IDirect3DDevice8; // Forward declaration
+
+struct Emscripten_IDirect3D8 : public IDirect3D8 {
+    DUMMY_IUNKNOWN
+    virtual UINT GetAdapterCount() override { return 1; }
+    virtual HRESULT GetAdapterIdentifier(UINT Adapter, DWORD Flags,
+                                       D3DADAPTER_IDENTIFIER8 *pId) override { return 0; }
+    virtual UINT GetAdapterModeCount(UINT Adapter) override { return 0; }
+    virtual HRESULT EnumAdapterModes(UINT Adapter, UINT Mode,
+                                   D3DDISPLAYMODE *pMode) override { return 0; }
+    virtual HRESULT GetAdapterDisplayMode(UINT Adapter,
+                                        D3DDISPLAYMODE *pMode) override { return 0; }
+    virtual HRESULT CreateDevice(UINT Adapter, DWORD DeviceType,
+                               void *hFocusWindow, DWORD BehaviorFlags,
+                               D3DPRESENT_PARAMETERS *pParams,
+                               IDirect3DDevice8 **ppDevice) override { 
+        *ppDevice = new Emscripten_IDirect3DDevice8();
+        return 0; 
+    }
+    virtual HRESULT GetDeviceCaps(UINT Adapter, DWORD DeviceType,
+                                D3DCAPS8 *pCaps) override {
+        if (pCaps) {
+            memset(pCaps, 0, sizeof(*pCaps));
+            pCaps->DevCaps             = D3DDEVCAPS_HWTRANSFORMANDLIGHT | D3DDEVCAPS_DRAWPRIMITIVES2;
+            pCaps->MaxTextureWidth     = 4096;
+            pCaps->MaxTextureHeight    = 4096;
+            pCaps->MaxVolumeExtent     = 256;
+            pCaps->MaxTextureRepeat    = 8192;
+            pCaps->MaxTextureAspectRatio = 0;
+            pCaps->MaxAnisotropy       = 4;
+            pCaps->MaxPointSize        = 256.0f;
+            pCaps->MaxPrimitiveCount   = 1048575;
+            pCaps->MaxVertexIndex      = 1048575;
+            pCaps->MaxStreams           = 16;
+            pCaps->MaxStreamStride     = 255;
+            pCaps->MaxSimultaneousTextures = 8;
+            pCaps->MaxTextureBlendStages   = 8;
+            pCaps->TextureOpCaps       = 0x03FFFFFF;
+            pCaps->RasterCaps          = D3DPRASTERCAPS_FOGTABLE | D3DPRASTERCAPS_FOGVERTEX |
+                                         D3DPRASTERCAPS_ZBIAS   | D3DPRASTERCAPS_WFOG;
+            pCaps->SrcBlendCaps        = 0x00003FFF;
+            pCaps->DestBlendCaps       = 0x00003FFF;
+            pCaps->TextureCaps         = D3DPTEXTURECAPS_PROJECTED | D3DPTEXTURECAPS_CUBEMAP;
+            pCaps->VertexShaderVersion = 0x0101;
+            pCaps->MaxVertexShaderConst = 96;
+            pCaps->PixelShaderVersion  = 0x0101;
+            pCaps->MaxPixelShaderValue = 1.0f;
+            pCaps->StencilCaps         = D3DSTENCILCAPS_KEEP | D3DSTENCILCAPS_REPLACE |
+                                         D3DSTENCILCAPS_INCRSAT | D3DSTENCILCAPS_DECRSAT |
+                                         D3DSTENCILCAPS_INCR    | D3DSTENCILCAPS_DECR;
+        }
+        return 0;
+    }
+    virtual HRESULT CheckDeviceFormat(UINT Adapter, DWORD DeviceType,
+                                    DWORD AdapterFormat, DWORD Usage,
+                                    DWORD RType, DWORD CheckFormat) override { return 0; }
+    virtual HRESULT CheckDeviceType(UINT Adapter, DWORD DeviceType,
+                                  DWORD DisplayFormat, DWORD BackBufferFormat,
+                                  int Windowed) override { return 0; }
+    virtual HRESULT CheckDeviceMultiSampleType(UINT Adapter, DWORD DeviceType,
+                                             DWORD SurfaceFormat, int Windowed,
+                                             DWORD MultiSampleType) override { return 0; }
+    virtual HRESULT CheckDepthStencilMatch(UINT Adapter, DWORD DeviceType,
+                                         DWORD AdapterFormat,
+                                         DWORD RenderTargetFormat,
+                                         DWORD DepthStencilFormat) override { return 0; }
+};
+
+
+extern "C" IDirect3D8 *Direct3DCreate8(UINT SDKVersion);
+
+#endif
+
+#endif /* __EMSCRIPTEN_D3D8_H */
+
+#define D3DX_FILTER_NONE (1 << 0)
+#define D3DX_FILTER_POINT (2 << 0)
+#define D3DX_FILTER_LINEAR (3 << 0)
+#define D3DX_FILTER_TRIANGLE (4 << 0)
+#define D3DX_FILTER_BOX (5 << 0)
+
+inline HRESULT D3DXCreateTexture(struct IDirect3DDevice8 *pDevice, UINT Width,
+                                 UINT Height, UINT MipLevels, DWORD Usage,
+                                 D3DFORMAT Format, DWORD Pool,
+                                 struct IDirect3DTexture8 **ppTexture) {
+  if (ppTexture)
+    *ppTexture = new Emscripten_IDirect3DTexture8(Width, Height, MipLevels, Format);
+  return 0;
+}
+
+inline HRESULT D3DXCreateTextureFromFileExA(
+    struct IDirect3DDevice8 *pDevice, const char *pSrcFile, UINT Width,
+    UINT Height, UINT MipLevels, DWORD Usage, D3DFORMAT Format, DWORD Pool,
+    DWORD Filter, DWORD MipFilter, D3DCOLOR ColorKey, void *pSrcInfo,
+    void *pPalette, struct IDirect3DTexture8 **ppTexture) {
+  if (ppTexture)
+    *ppTexture = new Emscripten_IDirect3DTexture8(Width, Height, MipLevels, Format);
+  return 0;
+}
+
+inline HRESULT
+D3DXLoadSurfaceFromSurface(void *pDestSurface, const void *pDestPalette,
+                           const RECT *pDestRect, void *pSrcSurface,
+                           const void *pSrcPalette, const RECT *pSrcRect,
+                           DWORD Filter, D3DCOLOR ColorKey) {
+  return 0;
+}
+
+inline HRESULT D3DXFilterTexture(void *pBaseTexture, const void *pPalette,
+                                 UINT SrcLevel, DWORD Filter) {
+  return 0;
+}
+
+inline HRESULT
+D3DXCreateCubeTexture(struct IDirect3DDevice8 *pDevice, UINT EdgeLength,
+                      UINT MipLevels, DWORD Usage, D3DFORMAT Format, DWORD Pool,
+                      struct IDirect3DCubeTexture8 **ppCubeTexture) {
+  return 0;
+}
+
+inline HRESULT
+D3DXCreateVolumeTexture(struct IDirect3DDevice8 *pDevice, UINT Width,
+                        UINT Height, UINT Depth, UINT MipLevels, DWORD Usage,
+                        D3DFORMAT Format, DWORD Pool,
+                        struct IDirect3DVolumeTexture8 **ppVolumeTexture) {
+  return 0;
+}
