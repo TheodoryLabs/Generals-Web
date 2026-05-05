@@ -796,9 +796,10 @@ int main(int argc, char *argv[]) {
               "shellmap='%s'\n",
               (int)TheGlobalData->m_shellMapOn, opt_in,
               TheGlobalData->m_shellMapName.str());
-      if (opt_in) {
-        TheWritableGlobalData->m_shellMapOn = TRUE;
-      }
+      // Set unconditionally to opt_in's value — the LOD probe sometimes
+      // leaves it TRUE on web because of timing differences, which would
+      // crash via the WorldHeightMap unaligned-read alignment fault.
+      TheWritableGlobalData->m_shellMapOn = opt_in ? TRUE : FALSE;
     }
 
     // Engage the deferred audio archive mount. Wait a few frames first so the
