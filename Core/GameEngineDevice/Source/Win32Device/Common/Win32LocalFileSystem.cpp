@@ -308,6 +308,40 @@ Bool Win32LocalFileSystem::createDirectory(AsciiString directory)
 
 AsciiString Win32LocalFileSystem::normalizePath(const AsciiString& filePath) const
 {
+#ifdef __EMSCRIPTEN__
+	// GeneralsX @feature WebPort 2026-05-05 — normalise without Win32 API.
+	//
+	// GetFullPathNameA always fails on Emscripten which empties the string,
+	// breaks everywhere paths are passed through normalize (notably the
+	// "Save" directory probe and map-INI loading), and asserts in
+	// release builds. Provide a POSIX-friendly canonicaliser that:
+	//   * converts backslashes to forward slashes
+	//   * lowercases ASCII (BigVFS keys are lowercase)
+	//   * collapses repeated slashes
+	//
+	// We deliberately do NOT realpath() against the local FS — Emscripten's
+	// MEMFS doesn't carry the original Windows working directory and the
+	// engine only needs a stable, canonical key for its own bookkeeping.
+	if (filePath.isEmpty()) {
+		return AsciiString::TheEmptyString;
+	}
+	const Char *src = filePath.str();
+	size_t len = strlen(src);
+	AsciiString out;
+	Char *dst = out.getBufferForRead(len);
+	size_t w = 0;
+	Char prev = '\0';
+	for (size_t i = 0; i < len; ++i) {
+		Char c = src[i];
+		if (c == '\\') c = '/';
+		else if (c >= 'A' && c <= 'Z') c = (Char)(c - 'A' + 'a');
+		if (c == '/' && prev == '/') continue;  // collapse //
+		dst[w++] = c;
+		prev = c;
+	}
+	dst[w] = '\0';
+	return out;
+#else
 	DWORD retval = GetFullPathNameA(filePath.str(), 0, nullptr, nullptr);
 	if (retval == 0)
 	{
@@ -324,4 +358,5 @@ AsciiString Win32LocalFileSystem::normalizePath(const AsciiString& filePath) con
 	}
 
 	return normalizedFilePath;
+#endif
 }

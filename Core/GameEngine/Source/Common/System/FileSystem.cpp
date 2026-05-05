@@ -175,6 +175,18 @@ File*		FileSystem::openFile( const Char *filename, Int access, size_t bufferSize
 	USE_PERF_TIMER(FileSystem)
 	File *file = nullptr;
 
+#ifdef __EMSCRIPTEN__
+	// GX-TRACE — log every file open so we can see what the engine is
+	// touching right before a freeze.
+	if (filename) {
+		FILE *trace = fopen("/gx_trace.log", "a");
+		if (trace) {
+			fprintf(trace, "OPEN fn='%s' access=%d\n", filename, access);
+			fclose(trace);
+		}
+	}
+#endif
+
 	if ( TheLocalFileSystem != nullptr )
 	{
 		if (instance != 0)
@@ -213,6 +225,17 @@ File*		FileSystem::openFile( const Char *filename, Int access, size_t bufferSize
 		// TheSuperHackers @todo Pass 'access' here?
 		file = TheArchiveFileSystem->openFile( filename, 0, instance );
 	}
+
+#ifdef __EMSCRIPTEN__
+	if (filename) {
+		FILE *trace = fopen("/gx_trace.log", "a");
+		if (trace) {
+			fprintf(trace, "RES fn='%s' file=%p\n",
+			        filename, (void*)file);
+			fclose(trace);
+		}
+	}
+#endif
 
 	return file;
 }

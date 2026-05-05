@@ -1103,7 +1103,11 @@ void GameLogic::setGameMode( GameMode mode )
 void GameLogic::startNewGame( Bool loadingSaveGame )
 {
 #ifdef __EMSCRIPTEN__
-#define GX_TRACE(tag) fprintf(stderr,"GX-TRACE: startNewGame:%s mode=%d save=%d\n",tag,(int)m_gameMode,(int)loadingSaveGame)
+#define GX_TRACE(tag) do { \
+	FILE *_t = fopen("/gx_trace.log", "a"); \
+	if (_t) { fprintf(_t, "GX-TRACE: startNewGame:%s mode=%d save=%d\n", \
+		tag, (int)m_gameMode, (int)loadingSaveGame); fclose(_t); } \
+} while (0)
 	GX_TRACE("ENTER");
 #else
 #define GX_TRACE(tag) ((void)0)

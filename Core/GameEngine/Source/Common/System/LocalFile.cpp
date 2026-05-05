@@ -146,8 +146,66 @@ Bool LocalFile::open(const Char *filename, Int access, size_t bufferSize) {
     void *vfs_data = nullptr;
     unsigned int vfs_size = 0;
 
-    // Pass the original requested filename (e.g. "data\\ini\\weapon.ini")
-    if (Web_VFS_Read_File_Sync(filename, &vfs_data, &vfs_size)) {
+    // GeneralsX @feature WebPort 2026-05-05 — normalise the requested
+    // filename so BigVFS lookups succeed.
+    //
+    // The engine builds paths in Win32 form: mixed case + backslashes
+    // ("Maps\\ShellMapMD\\map.ini"). The BigVFS layer keys files by the
+    // POSIX/lowercase form delivered by the deploy ("maps/shellmapmd/map.ini").
+    // Without this fixup the shell map's map.ini fails to load with
+    //   ASSERTION FAILURE: INI::load, cannot open file 'Maps\\ShellMapMD\\map.ini'
+    // and the menu's animated background never appears.
+    char gx_vfs_path[1024];
+    const Char *vfs_path = filename;
+    if (filename) {
+      size_t len = strlen(filename);
+      if (len < sizeof(gx_vfs_path)) {
+        for (size_t i = 0; i < len; ++i) {
+          char c = filename[i];
+          if (c == '\\') c = '/';
+          else if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+          gx_vfs_path[i] = c;
+        }
+        gx_vfs_path[len] = '\0';
+        vfs_path = gx_vfs_path;
+      }
+    }
+
+    // GX-TRACE — append to a persistent file so we can read it from JS even
+    // if the trace fired before our console hook attached. Write only paths
+    // we actually care about (shellmap-related) to keep the file small.
+    if (filename) {
+      bool log_it = false;
+      const char *fn = filename;
+      for (const char *p = fn; *p; ++p) {
+        const char a = (char)((*p)|0x20);
+        if (a=='s' && (p[1]|0x20)=='h' && (p[2]|0x20)=='e' && (p[3]|0x20)=='l' && (p[4]|0x20)=='l') {
+          log_it = true; break;
+        }
+        if (a=='m' && (p[1]|0x20)=='a' && (p[2]|0x20)=='p' && p[3]=='.') {
+          log_it = true; break;
+        }
+      }
+      if (log_it) {
+        FILE *gx_trace = fopen("/gx_trace.log", "a");
+        if (gx_trace) {
+          fprintf(gx_trace,
+                  "LocalFile::open BigVFS try fn='%s' vfs='%s'\n",
+                  fn, vfs_path);
+          fclose(gx_trace);
+        }
+        fprintf(stderr,
+                "GX-TRACE: LocalFile::open BigVFS try fn='%s' vfs='%s'\n",
+                fn, vfs_path);
+      }
+    }
+    if (Web_VFS_Read_File_Sync(vfs_path, &vfs_data, &vfs_size)) {
+      FILE *gx_trace = fopen("/gx_trace.log", "a");
+      if (gx_trace) {
+        fprintf(gx_trace, "LocalFile::open BigVFS HIT fn='%s' size=%u\n",
+                filename, vfs_size);
+        fclose(gx_trace);
+      }
       // Wrap the fetched memory buffer in a standard FILE* using fmemopen
       m_file = fmemopen(vfs_data, vfs_size, "rb");
       if (m_file) {
@@ -168,19 +226,39 @@ Bool LocalFile::open(const Char *filename, Int access, size_t bufferSize) {
   // Failure modes: if the path is longer than the buffer we just truncate —
   // the fopen will fail downstream, which is the same outcome as before.
   // GeneralsX @feature WebPort 2026-05-04 — IDBFS persistence
+  // GeneralsX @feature WebPort 2026-05-05 — normalise BOTH slashes and case.
+  // The deploy stores all assets under /maps/shellmapmd/map.ini etc. (lower
+  // case, forward slashes); the engine builds Win32-form paths
+  // ("Maps\\ShellMapMD\\map.ini"). MEMFS is POSIX case-sensitive, so without
+  // the lowercase fixup INI::load fails with
+  //   ASSERTION FAILURE: INI::load, cannot open file 'Maps\\ShellMapMD\\map.ini'
+  // for the shellmap.
+  //
+  // Skip lowercasing for absolute paths under /home or /userdata so user
+  // save-game directories (which are created with mixed case) keep working.
   char gx_normalized_path[1024];
   const Char *fopen_path = filename;
   if (filename) {
     size_t len = strlen(filename);
     if (len < sizeof(gx_normalized_path)) {
+      const bool is_userdata =
+          (len >= 5 && filename[0] == '/' &&
+           (strncmp(filename, "/home", 5) == 0 ||
+            strncmp(filename, "/user", 5) == 0 ||
+            strncmp(filename, "/tmp",  4) == 0));
       bool needs_fix = false;
       for (size_t i = 0; i < len; ++i) {
-        if (filename[i] == '\\') { needs_fix = true; break; }
+        const Char c = filename[i];
+        if (c == '\\') { needs_fix = true; break; }
+        if (!is_userdata && c >= 'A' && c <= 'Z') { needs_fix = true; break; }
       }
       if (needs_fix) {
         for (size_t i = 0; i < len; ++i) {
-          gx_normalized_path[i] =
-              (filename[i] == '\\') ? '/' : filename[i];
+          Char c = filename[i];
+          if (c == '\\') c = '/';
+          else if (!is_userdata && c >= 'A' && c <= 'Z')
+            c = (Char)(c - 'A' + 'a');
+          gx_normalized_path[i] = c;
         }
         gx_normalized_path[len] = '\0';
         fopen_path = gx_normalized_path;
