@@ -1245,6 +1245,16 @@ look at some data rather than running a game, so don't pass this load to the cli
 //-------------------------------------------------------------------------------------------------
 Bool TerrainLogic::loadMap( AsciiString filename, Bool query )
 {
+#ifdef __EMSCRIPTEN__
+#define GX_TL(tag) do { \
+	FILE *_t = fopen("/gx_trace.log", "a"); \
+	if (_t) { fprintf(_t, "GX-TRACE: TerrainLogic::loadMap:%s file='%s' query=%d\n", \
+		tag, filename.str(), (int)query); fclose(_t); } \
+} while (0)
+	GX_TL("ENTER");
+#else
+#define GX_TL(tag) ((void)0)
+#endif
 
 	// sanity
 	if( filename.isEmpty() )
@@ -1252,6 +1262,8 @@ Bool TerrainLogic::loadMap( AsciiString filename, Bool query )
 
 	// copy filename
 	m_filenameString = filename;
+
+	GX_TL("BEFORE-waypoint-walk");
 
 	// Add waypoint objects.
 	MapObject *pObj;
@@ -1261,9 +1273,13 @@ Bool TerrainLogic::loadMap( AsciiString filename, Bool query )
 		}
 	}
 
+	GX_TL("AFTER-waypoint-walk");
+
 	CachedFileInputStream theInputStream;
+	GX_TL("BEFORE-stream-open");
 	if (theInputStream.open(AsciiString(m_filenameString.str())))
 	try {
+		GX_TL("STREAM-OPENED");
 		ChunkInputStream *pStrm = &theInputStream;
 		pStrm->absoluteSeek(0);
 		DataChunkInput file( pStrm );
@@ -1306,14 +1322,22 @@ Bool TerrainLogic::loadMap( AsciiString filename, Bool query )
 	DEBUG_LOG(("Total of %d waypoints.", count));
 #endif
 
+	GX_TL("PAST-stream-parse");
+
 	if (!query) {
+		GX_TL("BEFORE-TerrainVisual-load");
 		// tell the game interface a new terrain file has been loaded up
 		TheTerrainVisual->load( getSourceFilename() );
+		GX_TL("AFTER-TerrainVisual-load");
 	}
 
+	GX_TL("RETURN-TRUE");
 	return TRUE;  // success
 
 }
+#ifdef __EMSCRIPTEN__
+#undef GX_TL
+#endif
 
 //-------------------------------------------------------------------------------------------------
 /** Reads in the waypoint chunk */

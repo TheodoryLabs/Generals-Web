@@ -768,20 +768,37 @@ int main(int argc, char *argv[]) {
     GX_ReportProgress("ready", 1, 1, "");
     fprintf(stderr, "INFO: GameEngine::init() complete\n");
 
-    // GeneralsX @feature WebPort 2026-05-05 — re-enable shellmap.
+    // GeneralsX @feature WebPort 2026-05-05 — shellmap override.
+    //
     // GameLOD::applyStaticLODLevel() disables m_shellMapOn whenever the
-    // initial memory probe fails (fixed-size wasm heap → m_memPassed=FALSE
-    // by design), which leaves the menu without an animated background
-    // because no shell map ever loads. Force it back on after init so the
-    // first GameClient::update() that calls showShellMap(TRUE) will fire
-    // MSG_NEW_GAME(GAME_SHELL).
+    // initial memory probe fails. The wasm heap is fixed-size by design so
+    // m_memPassed is always FALSE on web, which leaves the menu without an
+    // animated background because no shell map ever loads.
+    //
+    // Forcing m_shellMapOn=TRUE here makes the engine try to load
+    // ShellMap1/ShellMapMD via MSG_NEW_GAME(GAME_SHELL). Path-normalisation
+    // gets the .map blob delivered correctly (86 KB), but the EA binary
+    // chunk parser inside WorldHeightMap's constructor performs unaligned
+    // multi-byte reads that wasm aborts as "alignment fault". Auditing
+    // every chunk reader for portable aligned loads is a substantial
+    // separate effort.
+    //
+    // Keep the override OFF by default so the menu still renders as a
+    // static background (current shipped behaviour). Set
+    // window.GeneralsX.enableShellMap=true in the JS shell to opt-in for
+    // local debugging once the WorldHeightMap parsing is fixed.
     if (TheWritableGlobalData) {
+      const int opt_in = EM_ASM_INT(({
+        return (window.GeneralsX && window.GeneralsX.enableShellMap) ? 1 : 0;
+      }));
       fprintf(stderr,
-              "GX-TRACE: WebPort post-init: m_shellMapOn was=%d, forcing "
-              "TRUE; shellmap='%s'\n",
-              (int)TheGlobalData->m_shellMapOn,
+              "GX-TRACE: WebPort post-init: m_shellMapOn was=%d, opt_in=%d, "
+              "shellmap='%s'\n",
+              (int)TheGlobalData->m_shellMapOn, opt_in,
               TheGlobalData->m_shellMapName.str());
-      TheWritableGlobalData->m_shellMapOn = TRUE;
+      if (opt_in) {
+        TheWritableGlobalData->m_shellMapOn = TRUE;
+      }
     }
 
     // Engage the deferred audio archive mount. Wait a few frames first so the
