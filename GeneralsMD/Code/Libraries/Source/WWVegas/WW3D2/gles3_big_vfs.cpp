@@ -296,6 +296,23 @@ bool BigVFS::Read_File_Sync(const char *path, void **out_data,
     return false;
   }
 
+  // GeneralsX @feature WebPort 2026-05-05 — short-circuit zero-byte entries.
+  // BIG archives can legitimately store empty files (e.g. ShellMapMD\map.ini).
+  // Issuing a Range request like 'bytes=N-(N-1)' is invalid HTTP and returns
+  // 416 Range Not Satisfiable; without this guard the engine keeps retrying
+  // forever and floods the console with -416 errors.
+  if (entry->size == 0) {
+    void *empty = malloc(1);  // non-null sentinel
+    if (!empty) return false;
+    CachedData cd;
+    cd.data = empty;
+    cd.size = 0;
+    cache[norm] = cd;
+    *out_data = cd.data;
+    *out_size = 0;
+    return true;
+  }
+
   // Fetch the byte range from the server
   const BigArchive &archive = archives[entry->archive_index];
 

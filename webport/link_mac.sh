@@ -112,7 +112,7 @@ else
     # we use for triaging in-browser issues. Source maps and demangling on.
     FLAGS=( -O2 -g -DNDEBUG )
     LINK_FLAGS=(
-        -g3 -sSAFE_HEAP=1 -sASSERTIONS=2 -sDEMANGLE_SUPPORT=1
+        -g3 -sSAFE_HEAP=0 -sASSERTIONS=2 -sDEMANGLE_SUPPORT=1
         -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,FS,UTF8ToString
         "${COMMON_LINK_FLAGS[@]}"
     )

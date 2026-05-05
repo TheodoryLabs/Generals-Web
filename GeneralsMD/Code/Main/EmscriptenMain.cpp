@@ -796,9 +796,11 @@ int main(int argc, char *argv[]) {
               "shellmap='%s'\n",
               (int)TheGlobalData->m_shellMapOn, opt_in,
               TheGlobalData->m_shellMapName.str());
-      // Set unconditionally to opt_in's value — the LOD probe sometimes
-      // leaves it TRUE on web because of timing differences, which would
-      // crash via the WorldHeightMap unaligned-read alignment fault.
+      // Force OFF unless explicitly opted in. The shellmap path correctly
+      // fetches the .map (BigVFS now short-circuits empty entries instead
+      // of looping on -416), but downstream WorldHeightMap parsing still
+      // hangs CPU-bound — likely an infinite loop fed by an unaligned
+      // chunk-header read. Keep opt-in until that parser is hardened.
       TheWritableGlobalData->m_shellMapOn = opt_in ? TRUE : FALSE;
     }
 
