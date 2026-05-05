@@ -768,6 +768,22 @@ int main(int argc, char *argv[]) {
     GX_ReportProgress("ready", 1, 1, "");
     fprintf(stderr, "INFO: GameEngine::init() complete\n");
 
+    // GeneralsX @feature WebPort 2026-05-05 — re-enable shellmap.
+    // GameLOD::applyStaticLODLevel() disables m_shellMapOn whenever the
+    // initial memory probe fails (fixed-size wasm heap → m_memPassed=FALSE
+    // by design), which leaves the menu without an animated background
+    // because no shell map ever loads. Force it back on after init so the
+    // first GameClient::update() that calls showShellMap(TRUE) will fire
+    // MSG_NEW_GAME(GAME_SHELL).
+    if (TheWritableGlobalData) {
+      fprintf(stderr,
+              "GX-TRACE: WebPort post-init: m_shellMapOn was=%d, forcing "
+              "TRUE; shellmap='%s'\n",
+              (int)TheGlobalData->m_shellMapOn,
+              TheGlobalData->m_shellMapName.str());
+      TheWritableGlobalData->m_shellMapOn = TRUE;
+    }
+
     // Engage the deferred audio archive mount. Wait a few frames first so the
     // user sees the main menu paint before the network starts pulling MB.
     g_deferredMountState = 1;
