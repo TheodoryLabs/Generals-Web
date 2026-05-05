@@ -101,9 +101,19 @@ public:
     // Decode an FVF bitmask and compute byte offsets for each component
     void Decode(unsigned int fvf);
 
-    // Set up glVertexAttribPointer calls for the decoded FVF
-    // Must be called while the correct VBO is bound
-    void Apply_Vertex_Attribs(unsigned int stride) const;
+    // Set up glVertexAttribPointer calls for the decoded FVF.
+    // Must be called while the correct VBO is bound.
+    //
+    // `base_offset_bytes` is added to every per-attribute offset before
+    // it's passed to glVertexAttribPointer. This emulates DX8's
+    // SetIndices(BaseVertexIndex) behaviour — the engine's dynamic VB
+    // allocator returns a VertexBufferOffset (in vertices) that names the
+    // first vertex of THIS draw's allocation inside the shared VBO. Since
+    // WebGL2/GLES3 has no `glDrawElementsBaseVertex`, we compensate by
+    // sliding the attribute base pointer forward by base_offset_bytes
+    // (= base_vtx_index * stride) so index 0 reads OUR first vertex.
+    void Apply_Vertex_Attribs(unsigned int stride,
+                              unsigned int base_offset_bytes = 0) const;
 
     // Disable all vertex attributes (call when switching VBOs)
     static void Disable_All_Attribs();

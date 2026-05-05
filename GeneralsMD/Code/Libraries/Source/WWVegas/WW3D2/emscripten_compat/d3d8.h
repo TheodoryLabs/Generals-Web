@@ -20,6 +20,23 @@
 // Forward declaration — defined in gles3_wrapper.cpp (which has SDL access)
 void GLES3_Swap_Buffers();
 
+// GeneralsX @feature WebPort 2026-05-05 — black-canvas triage counters.
+// Defined in dx8wrapper.cpp; bumped from inline DrawIndexedPrimitive below
+// and read from EmscriptenMain.cpp once a second to localise where draws
+// are getting lost.
+extern "C" {
+extern int gx_d3d_dip_called;
+extern int gx_d3d_dip_no_vb;
+extern int gx_d3d_dip_empty_vb;
+extern int gx_d3d_dip_no_ib;
+extern int gx_d3d_dip_empty_ib;
+extern int gx_d3d_dip_drew;
+extern int gx_d3d_setstreamsource_calls;
+extern int gx_d3d_setstreamsource_null;
+extern int gx_d3d_setindices_calls;
+extern int gx_d3d_setindices_null;
+}
+
 #define D3DCURSOR_IMMEDIATE_UPDATE 0x00000001L
 
 #define D3DUSAGE_POINTS 0x00000040L
@@ -861,12 +878,33 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
     virtual HRESULT SetStreamSource(UINT StreamNumber,
                                   IDirect3DVertexBuffer8 *pStreamData,
                                   UINT Stride) override {
+        extern int gx_d3d_setstreamsource_calls;
+        extern int gx_d3d_setstreamsource_null;
+        ++gx_d3d_setstreamsource_calls;
+        if (!pStreamData) ++gx_d3d_setstreamsource_null;
+        // GeneralsX @feature WebPort 2026-05-05 — black-canvas root cause #4
+        //
+        // The W3D engine sets streams in a loop over MAX_VERTEX_STREAMS,
+        // calling SetStreamSource(0, valid_vb, ...) for stream 0 and
+        // SetStreamSource(i, nullptr, 0) for streams 1 .. MAX-1. This stub
+        // only models a single bound stream (current_vb / current_stride),
+        // so without filtering by stream number, the trailing null calls
+        // for streams 1+ would clobber the just-set stream 0 — every
+        // subsequent DrawIndexedPrimitive would short-circuit on
+        // !current_vb. Filter to stream 0 only; we don't actually support
+        // multi-stream geometry in the GLES3 path anyway.
+        if (StreamNumber != 0)
+            return 0;
         current_vb     = static_cast<Emscripten_IDirect3DVertexBuffer8*>(pStreamData);
         current_stride = Stride;
         return 0;
     }
     virtual HRESULT SetIndices(IDirect3DIndexBuffer8 *pIndexData,
                              UINT BaseVertexIndex) override {
+        extern int gx_d3d_setindices_calls;
+        extern int gx_d3d_setindices_null;
+        ++gx_d3d_setindices_calls;
+        if (!pIndexData) ++gx_d3d_setindices_null;
         current_ib       = static_cast<Emscripten_IDirect3DIndexBuffer8*>(pIndexData);
         base_vtx_index   = BaseVertexIndex;
         return 0;
@@ -881,13 +919,24 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
     virtual HRESULT SetPixelShader(DWORD Handle) override { return 0; }
 
     // Helper: decode current FVF and apply vertex attrib pointers (VBO must be bound).
+    //
+    // GeneralsX @feature WebPort 2026-05-05 — apply BaseVertexIndex offset.
+    // The W3D engine's dynamic VB allocator returns a `VertexBufferOffset`
+    // (in vertices) and passes it through `SetIndices(BaseVertexIndex=offset)`.
+    // In real D3D8 the offset is added to every fetched index; in WebGL2/
+    // GLES3 there's no `glDrawElementsBaseVertex` equivalent, so we slide
+    // the per-attribute pointer base forward by `base_vtx_index * stride`
+    // bytes. With this in place, the engine's indices [0,1,2,3] correctly
+    // address THIS draw's vertices instead of vertices 0..3 of the shared
+    // dynamic VBO (which would be whoever wrote first this frame).
     void _setup_vertex_attribs(UINT stride_override = 0) {
         if (!current_fvf) return;
         GLES3_FVFDecoder dec;
         dec.Decode(current_fvf);
         UINT stride = stride_override ? stride_override : current_stride;
         if (stride == 0) stride = dec.Get_FVF_Size();
-        dec.Apply_Vertex_Attribs(stride);
+        const UINT base_offset_bytes = (UINT)base_vtx_index * stride;
+        dec.Apply_Vertex_Attribs(stride, base_offset_bytes);
     }
 
     virtual HRESULT DrawPrimitive(D3DPRIMITIVETYPE PrimType, UINT StartVertex,
@@ -929,13 +978,20 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
     virtual HRESULT DrawIndexedPrimitive(D3DPRIMITIVETYPE PrimType, UINT MinIndex,
                                        UINT NumVertices, UINT StartIndex,
                                        UINT PrimCount) override {
-        if (!current_vb || current_vb->data.empty()) return 0;
-        if (!current_ib || current_ib->data.empty()) return 0;
+        // GeneralsX @feature WebPort 2026-05-05 — black-canvas triage
+        // Counters declared with C linkage at file scope; defined in
+        // dx8wrapper.cpp.
+        ++gx_d3d_dip_called;
+        if (!current_vb) { ++gx_d3d_dip_no_vb; return 0; }
+        if (current_vb->data.empty()) { ++gx_d3d_dip_empty_vb; return 0; }
+        if (!current_ib) { ++gx_d3d_dip_no_ib; return 0; }
+        if (current_ib->data.empty()) { ++gx_d3d_dip_empty_ib; return 0; }
         current_vb->Upload_And_Bind();
         current_ib->Upload_And_Bind();
         _setup_vertex_attribs();
         GLES3_Draw_Triangles((unsigned int)PrimType, StartIndex, PrimCount,
                              MinIndex, NumVertices);
+        ++gx_d3d_dip_drew;
         return 0;
     }
 

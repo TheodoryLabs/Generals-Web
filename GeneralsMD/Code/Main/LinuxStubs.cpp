@@ -370,12 +370,27 @@ D3DXMATRIX *WINAPI D3DXMatrixRotationZ(D3DXMATRIX *pOut, FLOAT angle) {
   return pOut;
 }
 
-#endif // !_WIN32
-int TheMessageTime = 0;
-// Match WinMain.h declaration: extern HINSTANCE ApplicationHInstance
+// ============================================================================
+// Win32 globals normally defined by WinMain.cpp.
+// On non-Windows builds WinMain.cpp is excluded from the build (see
+// GeneralsMD/Code/Main/CMakeLists.txt: WinMain.cpp is gated on $<BOOL:${WIN32}>),
+// so the symbols Win32GameEngine.cpp / Win32DIKeyboard.cpp reference are
+// provided here. Match WinMain.h types exactly:
+//   GeneralsMD/Code/Main/WinMain.cpp: DWORD TheMessageTime = 0;
+//   GeneralsMD/Code/Main/WinMain.cpp: HINSTANCE ApplicationHInstance = nullptr;
+// (Type changed from `int` → `DWORD` 2026-05-04 to match the extern declared
+// in Win32GameEngine.cpp, avoiding any toolchain-specific complaints about
+// signedness mismatch on the variable definition.)
+// ============================================================================
+DWORD TheMessageTime = 0;
 HINSTANCE ApplicationHInstance = nullptr;
-// c_dfDIKeyboard: On Emscripten, provided by EmscriptenInput.cpp (avoids duplicate symbol).
-// On Linux (non-Emscripten), we still need it here.
+
+// c_dfDIKeyboard: on Emscripten, provided by EmscriptenInput.cpp so that the
+// SDL2 → DirectInput translation layer owns the symbol next to the keyboard
+// ring buffer. On other non-Windows builds (native Linux), there is no input
+// translation layer that defines it, so we provide a null fallback here.
 #ifndef __EMSCRIPTEN__
-void* c_dfDIKeyboard = nullptr;
+const void *c_dfDIKeyboard = nullptr;
 #endif
+
+#endif // !_WIN32

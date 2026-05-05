@@ -157,6 +157,39 @@ Bool LocalFile::open(const Char *filename, Int access, size_t bufferSize) {
     }
     // If not found in BigVFS, fall through to check local Emscripten MEMFS
   }
+
+  // Path normalization for fopen on Emscripten. The engine builds paths with
+  // backslash separators (it was a Win32 codebase); Emscripten's MEMFS uses
+  // POSIX semantics where '\' is a valid filename character, NOT a separator.
+  // Without this fixup, writing a save file produces a single weirdly-named
+  // file at root rather than nested directories under /userdata.
+  //
+  // We allocate on the stack (paths are bounded; PATH_MAX worst case is ~4K).
+  // Failure modes: if the path is longer than the buffer we just truncate —
+  // the fopen will fail downstream, which is the same outcome as before.
+  // GeneralsX @feature WebPort 2026-05-04 — IDBFS persistence
+  char gx_normalized_path[1024];
+  const Char *fopen_path = filename;
+  if (filename) {
+    size_t len = strlen(filename);
+    if (len < sizeof(gx_normalized_path)) {
+      bool needs_fix = false;
+      for (size_t i = 0; i < len; ++i) {
+        if (filename[i] == '\\') { needs_fix = true; break; }
+      }
+      if (needs_fix) {
+        for (size_t i = 0; i < len; ++i) {
+          gx_normalized_path[i] =
+              (filename[i] == '\\') ? '/' : filename[i];
+        }
+        gx_normalized_path[len] = '\0';
+        fopen_path = gx_normalized_path;
+      }
+    }
+  }
+#  define GX_FOPEN_PATH fopen_path
+#else
+#  define GX_FOPEN_PATH filename
 #endif
 
   /* here we translate WSYS file access to the std C equivalent */
@@ -199,7 +232,8 @@ Bool LocalFile::open(const Char *filename, Int access, size_t bufferSize) {
     mode = binary ? "rb" : "r";
   }
 
-  m_file = fopen(filename, mode);
+  m_file = fopen(GX_FOPEN_PATH, mode);
+#undef GX_FOPEN_PATH
   if (m_file == nullptr) {
     goto error;
   }

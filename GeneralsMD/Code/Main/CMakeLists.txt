@@ -86,7 +86,7 @@ if(EMSCRIPTEN)
         ${CMAKE_CURRENT_SOURCE_DIR}/../CompatLib/Include
     )
     
-    set(EMSCRIPTEN_ASYNC_FLAGS 
+    set(EMSCRIPTEN_ASYNC_FLAGS
         # "-sASYNCIFY=1"
         # "-sASYNCIFY_STACK_SIZE=65536"
         # "-sASYNCIFY_IGNORE_INDIRECT=1"
@@ -104,9 +104,23 @@ if(EMSCRIPTEN)
         "-sINITIAL_MEMORY=536870912"
         "-sMAXIMUM_MEMORY=4294967296"
         "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS','printErr','addFunction','noExitRuntime','UTF8ToString']"
+        # JS-callable C entry points. EMSCRIPTEN_KEEPALIVE attributes alone
+        # *should* be enough, but with ASYNCIFY=1 the linker can sometimes
+        # garbage-collect KEEPALIVE symbols anyway. Listing them explicitly
+        # is defensive.
+        "-sEXPORTED_FUNCTIONS=['_main','_EmscriptenInput_OnPointerLockChange','_GX_FlushIdbfs_Tab','_GX_OnCanvasResize']"
         "-sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=['$registerPointerlockErrorEventCallback']"
     )
-    
+
+    # Custom HTML shell — provides a themed loading screen + the
+    # window.GeneralsX.setProgress() hook that EmscriptenMain.cpp calls.
+    # GeneralsX @feature WebPort 2026-05-04 — loading progress bar
+    set(GX_WEB_SHELL "${CMAKE_CURRENT_SOURCE_DIR}/web_shell.html")
+    target_link_options(z_generals PRIVATE
+        "SHELL:--shell-file ${GX_WEB_SHELL}"
+    )
+    set_property(TARGET z_generals APPEND PROPERTY LINK_DEPENDS "${GX_WEB_SHELL}")
+
     target_link_options(z_generals PRIVATE ${EMSCRIPTEN_ASYNC_FLAGS})
     target_compile_options(z_generals PRIVATE "-sUSE_SDL=2")
 endif()

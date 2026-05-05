@@ -1,0 +1,792 @@
+<!doctype html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>Command &amp; Conquer Generals: Zero Hour — Web</title>
+    <style>
+      :root {
+        --gx-bg: #0a0a0a;
+        --gx-fg: #f0d27a;        /* aged gold */
+        --gx-accent: #b3261e;    /* GLA red */
+        --gx-mute: #6a5d3b;
+        --gx-track: #1a1a1a;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: var(--gx-bg);
+        color: var(--gx-fg);
+        font-family: 'Courier New', Consolas, monospace;
+        overflow: hidden;
+      }
+      /* The canvas the game renders into. Must be #canvas for SDL2/Emscripten. */
+      /* Outer wrapper that letterboxes the engine's fixed-aspect canvas
+         into whatever viewport size we have. The engine draws at 800x600
+         internally; we keep the GL drawing buffer pinned to those
+         dimensions and use the wrapper to center + scale the visible
+         canvas. The aspect ratio is preserved (4:3) so menus and HUD
+         stay laid out at their authored coordinates. */
+      #gx-canvas-wrap {
+        position: fixed;
+        inset: 0;
+        background: #000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      canvas#canvas {
+        display: block;
+        /* CSS size: scaled-up engine framebuffer. Aspect ratio MUST match
+           the backing buffer (800x600) so the engine's 2D coordinates land
+           where they were authored to. The wrapper above centers us. */
+        aspect-ratio: 4 / 3;
+        width: auto;
+        height: 100vh;
+        max-width: 100vw;
+        max-height: 100vh;
+        background: #000;
+        outline: none;
+        border: 0;
+        image-rendering: auto;  /* let the browser bilerp the upscale */
+        /* Disable browser-native touch gestures so SDL gets every event:
+           - pinch/zoom of the page itself
+           - double-tap zoom
+           - swipe-to-navigate
+           Without this, two-finger drag on iOS Safari zooms the document
+           instead of dispatching SDL_FINGER* events to the canvas.        */
+        touch-action: none;
+        /* Suppress the iOS tap-highlight rectangle when a touch starts. */
+        -webkit-tap-highlight-color: transparent;
+        /* Disable text-selection on long-press, which otherwise pops a
+           selection magnifier over the game. */
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      /* Loading overlay — full-screen until window.GeneralsX.setProgress('ready', ...). */
+      #gx-loading {
+        position: fixed;
+        inset: 0;
+        background: var(--gx-bg);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+        transition: opacity 600ms ease-out;
+      }
+      #gx-loading.gx-hide {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #gx-title {
+        font-size: 26px;
+        letter-spacing: 6px;
+        color: var(--gx-fg);
+        text-shadow: 0 0 12px rgba(240, 210, 122, 0.35);
+        margin-bottom: 8px;
+        text-transform: uppercase;
+      }
+      #gx-subtitle {
+        font-size: 13px;
+        letter-spacing: 3px;
+        color: var(--gx-mute);
+        margin-bottom: 48px;
+        text-transform: uppercase;
+      }
+      #gx-stage {
+        font-size: 11px;
+        letter-spacing: 2px;
+        color: var(--gx-accent);
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        min-height: 14px;
+      }
+      #gx-label {
+        font-size: 13px;
+        color: var(--gx-fg);
+        margin-bottom: 18px;
+        min-height: 18px;
+        max-width: 480px;
+        text-align: center;
+      }
+      #gx-bar {
+        width: 480px;
+        max-width: 70vw;
+        height: 4px;
+        background: var(--gx-track);
+        border: 1px solid var(--gx-mute);
+        position: relative;
+        overflow: hidden;
+      }
+      #gx-fill {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 0%;
+        background: linear-gradient(90deg,
+          var(--gx-accent) 0%,
+          var(--gx-fg) 100%);
+        transition: width 220ms ease-out;
+      }
+      #gx-counter {
+        margin-top: 8px;
+        font-size: 11px;
+        color: var(--gx-mute);
+        letter-spacing: 1px;
+        min-height: 14px;
+      }
+      /* "Click to begin" button — only shown when the engine reaches the
+         `ready` stage WITHOUT a prior user gesture. Browsers block AudioContext
+         start and pointer-lock requests until the user interacts with the page,
+         so we gate the engine handoff on a click. Users who already clicked
+         while waiting for the WASM to download skip this screen entirely. */
+      #gx-start {
+        margin-top: 28px;
+        padding: 14px 56px;
+        background: transparent;
+        color: var(--gx-fg);
+        border: 1px solid var(--gx-fg);
+        font-family: inherit;
+        font-size: 16px;
+        letter-spacing: 6px;
+        text-transform: uppercase;
+        cursor: pointer;
+        display: none;
+        transition: background-color 180ms ease-out, color 180ms ease-out;
+      }
+      #gx-start:hover {
+        background: var(--gx-fg);
+        color: var(--gx-bg);
+      }
+      #gx-loading.gx-await-start #gx-bar,
+      #gx-loading.gx-await-start #gx-counter,
+      #gx-loading.gx-await-start #gx-stage,
+      #gx-loading.gx-await-start #gx-label {
+        opacity: 0.35;
+      }
+      #gx-loading.gx-await-start #gx-start { display: inline-block; }
+      /* Floating "now loading audio…" toast that lives in the corner of the
+         canvas while the deferred audio mount runs in the background. The
+         engine is fully running underneath; the user can click around in the
+         menu while this is happening. */
+      #gx-toast {
+        position: fixed;
+        right: 16px;
+        bottom: 16px;
+        min-width: 240px;
+        max-width: 360px;
+        padding: 10px 14px;
+        background: rgba(10, 10, 10, 0.85);
+        border: 1px solid var(--gx-mute);
+        color: var(--gx-fg);
+        font-size: 12px;
+        letter-spacing: 1px;
+        z-index: 5;
+        opacity: 0;
+        transform: translateY(20px);
+        transition: opacity 240ms ease-out, transform 240ms ease-out;
+        pointer-events: none;
+      }
+      #gx-toast.gx-show {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      #gx-toast-stage {
+        font-size: 10px;
+        letter-spacing: 2px;
+        color: var(--gx-accent);
+        text-transform: uppercase;
+        margin-bottom: 4px;
+      }
+      #gx-toast-label {
+        margin-bottom: 6px;
+      }
+      #gx-toast-bar {
+        height: 2px;
+        background: var(--gx-track);
+        border: 1px solid var(--gx-mute);
+        position: relative;
+      }
+      #gx-toast-fill {
+        position: absolute;
+        left: 0; top: 0; bottom: 0;
+        width: 0;
+        background: var(--gx-fg);
+        transition: width 220ms ease-out;
+      }
+      /* Hidden in the default UI but available for opt-in console output. */
+      #gx-output {
+        display: none;
+        position: fixed;
+        right: 8px;
+        bottom: 8px;
+        width: 360px;
+        height: 160px;
+        background: rgba(0, 0, 0, 0.7);
+        color: var(--gx-fg);
+        font-size: 10px;
+        padding: 6px;
+        border: 1px solid var(--gx-mute);
+        z-index: 20;
+        overflow-y: auto;
+        white-space: pre;
+        font-family: 'Courier New', Consolas, monospace;
+      }
+      body.gx-debug #gx-output { display: block; }
+      /* Error overlay shown on uncaught WASM exceptions. */
+      #gx-error {
+        position: fixed;
+        inset: 0;
+        background: rgba(10, 0, 0, 0.92);
+        color: #fff;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 30;
+        padding: 32px;
+        text-align: center;
+      }
+      #gx-error h2 {
+        color: var(--gx-accent);
+        margin: 0 0 12px 0;
+        letter-spacing: 4px;
+      }
+      #gx-error pre {
+        color: var(--gx-fg);
+        max-width: 80vw;
+        max-height: 40vh;
+        overflow: auto;
+        font-size: 12px;
+      }
+      #gx-error button {
+        margin-top: 16px;
+        padding: 8px 24px;
+        background: transparent;
+        color: var(--gx-fg);
+        border: 1px solid var(--gx-fg);
+        font-family: inherit;
+        font-size: 12px;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        cursor: pointer;
+      }
+      #gx-error button:hover {
+        background: var(--gx-fg);
+        color: var(--gx-bg);
+      }
+    </style>
+  </head>
+  <body>
+
+    <div id="gx-canvas-wrap">
+      <canvas id="canvas" width="800" height="600"
+              oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+    </div>
+
+    <div id="gx-loading" role="status" aria-live="polite">
+      <div id="gx-title">Generals Zero Hour</div>
+      <div id="gx-subtitle">Web Edition</div>
+      <div id="gx-stage">Downloading runtime</div>
+      <div id="gx-label">Fetching WebAssembly module&hellip;</div>
+      <div id="gx-bar"><div id="gx-fill"></div></div>
+      <div id="gx-counter"></div>
+      <button id="gx-start" type="button">Begin</button>
+    </div>
+
+    <div id="gx-error">
+      <h2 id="gx-error-title">Engine fault</h2>
+      <pre id="gx-error-detail"></pre>
+      <button id="gx-error-reload" type="button">Reload page</button>
+    </div>
+
+    <div id="gx-toast" role="status" aria-live="polite">
+      <div id="gx-toast-stage">Background load</div>
+      <div id="gx-toast-label">Loading audio assets…</div>
+      <div id="gx-toast-bar"><div id="gx-toast-fill"></div></div>
+    </div>
+
+    <pre id="gx-output"></pre>
+
+    <script>
+      // ====================================================================
+      // window.GeneralsX — bridge between the WASM engine and the loading UI.
+      //
+      // EmscriptenMain.cpp calls window.GeneralsX.setProgress(stage, current,
+      // total, label) at strategic boot points. Stages, in order:
+      //   "boot"   — early init (SDL, GL, frame pacer). 6 substeps.
+      //   "vfs"    — BigVFS archive mount. One tick per archive.
+      //   "engine" — TheGameEngine->init() bring-up.
+      //   "ready"  — engine is rendering; fade the overlay out.
+      //
+      // The contract is documented in EmscriptenMain.cpp's GX_ReportProgress.
+      // ====================================================================
+      (function () {
+        const overlay  = document.getElementById('gx-loading');
+        const stageEl  = document.getElementById('gx-stage');
+        const labelEl  = document.getElementById('gx-label');
+        const fillEl   = document.getElementById('gx-fill');
+        const countEl  = document.getElementById('gx-counter');
+        const errorEl  = document.getElementById('gx-error');
+        const errorDet = document.getElementById('gx-error-detail');
+        const outputEl = document.getElementById('gx-output');
+
+        // Stage display names. The C++ side uses the keys; the UI uses the values.
+        const STAGE_LABELS = {
+          'boot':     'Booting engine',
+          'vfs':      'Mounting game data',
+          'engine':   'Initializing game engine',
+          'ready':    'Ready'
+        };
+
+        // Bar weights, summing to 1.00:
+        //   download — wasm download + run-deps (handled by Module.setStatus)
+        //   boot     — early init (SDL / GL / frame pacer)
+        //   vfs      — BigVFS archive mount  (the longest-running stage)
+        //   engine   — TheGameEngine->init()
+        const DOWNLOAD_WEIGHT = 0.05;
+        const STAGE_WEIGHT = { 'boot': 0.05, 'vfs': 0.55, 'engine': 0.35 };
+
+        let lastReady = false;
+        let lastPct = 0;
+
+        // Gesture-gating state. Browsers won't let the page resume an
+        // AudioContext, request pointer lock, or play media without a prior
+        // user gesture. We track any pointer/keyboard interaction since page
+        // load; if `ready` arrives before the user has interacted, we show a
+        // "Begin" button to harvest a click before fading the overlay.
+        let gxUserGestureSeen = false;
+        let gxReadyPending = false;
+        const startBtn = document.getElementById('gx-start');
+
+        function gxResumeAudioContext() {
+          // Best-effort. Safe whether or not WWAudio / Web Audio is wired up
+          // yet — when the audio backend lands, this is the gesture that
+          // unblocks AudioContext.resume(). The Module property is the
+          // canonical place Emscripten apps stash an AudioContext.
+          try {
+            if (window.Module && window.Module.SDL2 &&
+                window.Module.SDL2.audioContext &&
+                typeof window.Module.SDL2.audioContext.resume === 'function') {
+              window.Module.SDL2.audioContext.resume();
+            }
+          } catch (e) { /* ignore — backend may not exist yet */ }
+        }
+
+        function gxFinishLoading() {
+          overlay.classList.add('gx-hide');
+          setTimeout(() => { overlay.style.display = 'none'; }, 700);
+        }
+
+        function gxShowStartButton() {
+          overlay.classList.add('gx-await-start');
+          // Focus the button so Enter/Space also activates it (keyboard users
+          // and screen readers).
+          if (startBtn) {
+            try { startBtn.focus(); } catch (e) {}
+          }
+        }
+
+        function gxOnFirstGesture() {
+          if (gxUserGestureSeen) return;
+          gxUserGestureSeen = true;
+          gxResumeAudioContext();
+          // If the engine had been waiting for us, finish the handoff now.
+          if (gxReadyPending) {
+            gxReadyPending = false;
+            overlay.classList.remove('gx-await-start');
+            gxFinishLoading();
+          }
+        }
+
+        // Any of these counts as a gesture for autoplay purposes.
+        ['pointerdown', 'keydown', 'touchstart'].forEach((evt) => {
+          window.addEventListener(evt, gxOnFirstGesture,
+                                  { passive: true, capture: true });
+        });
+        if (startBtn) {
+          startBtn.addEventListener('click', gxOnFirstGesture);
+        }
+
+        function setOverallPct(pct) {
+          const next = Math.max(0, Math.min(100, pct));
+          // Never regress: if the WASM download finished (5%) and then the
+          // C++ side reports boot=1/6 (~6%), we move forward; if it reports
+          // boot=0/6 we hold at 5% rather than snapping back.
+          if (next < lastPct) return;
+          lastPct = next;
+          fillEl.style.width = next.toFixed(1) + '%';
+        }
+
+        window.GeneralsX = {
+          setProgress: function (stage, current, total, label) {
+            if (lastReady) return; // ignore late updates after engine is up
+
+            if (stage === 'ready') {
+              lastReady = true;
+              setOverallPct(100);
+              stageEl.textContent = 'Ready';
+              labelEl.textContent = '';
+              countEl.textContent = '';
+              // If the user has already interacted with the page (the typical
+              // case — they clicked or pressed a key while WASM was loading)
+              // we can fade straight out. Otherwise, surface the "Begin"
+              // button so the browser's autoplay / pointer-lock policies
+              // have a gesture to attach to.
+              if (gxUserGestureSeen) {
+                gxFinishLoading();
+              } else {
+                gxReadyPending = true;
+                gxShowStartButton();
+              }
+              return;
+            }
+
+            const stageLabel = STAGE_LABELS[stage] || stage;
+            stageEl.textContent = stageLabel;
+            labelEl.textContent = label || '';
+
+            // Compute overall pct: download + finished prior stages + fractional in-stage.
+            let cumulative = DOWNLOAD_WEIGHT;
+            for (const s of ['boot', 'vfs', 'engine']) {
+              if (s === stage) {
+                if (total > 0) cumulative += STAGE_WEIGHT[s] * (current / total);
+                break;
+              }
+              cumulative += STAGE_WEIGHT[s];
+            }
+            setOverallPct(cumulative * 100);
+
+            countEl.textContent = (total > 0)
+              ? `${current}/${total}`
+              : '';
+          },
+
+          // Toggle the on-page log output. Useful for in-browser triage when
+          // the JS console is awkward to reach (e.g., on a tablet).
+          showOutput: function (on) {
+            document.body.classList.toggle('gx-debug', !!on);
+          },
+
+          // Hard error display — used by Module.onAbort, window.onerror, and
+          // the canvas webglcontextlost listener.
+          showError: function (message, title) {
+            errorDet.textContent = message;
+            const titleEl = document.getElementById('gx-error-title');
+            if (titleEl) titleEl.textContent = title || 'Engine fault';
+            errorEl.style.display = 'flex';
+            // Hide the loading overlay outright. Its semi-transparent error
+            // background otherwise lets the dimmed loading UI (faded title,
+            // and any Begin button if the engine reached `ready` first) bleed
+            // through, which is confusing.
+            overlay.style.display = 'none';
+          },
+
+          // Cursor visibility on the canvas.
+          //   visible === true  → engine wants the system cursor
+          //   visible === false → engine is drawing its own cursor; hide system
+          // The C++ SetCursor() stub in windows_base.h calls this through
+          // EmscriptenInput_SetCanvasCursor.
+          setCanvasCursor: function (visible) {
+            const c = document.getElementById('canvas');
+            if (!c) return;
+            c.style.cursor = visible ? 'default' : 'none';
+          },
+
+          // Secondary "background loading" toast — used by the deferred audio
+          // mount in EmscriptenMain.cpp's DeferredAudio_Step. Appears in the
+          // bottom-right corner; doesn't block input.
+          //   stage:   short label like "Loading audio assets" or "Audio ready"
+          //   current: 0..total
+          //   total:   number of items
+          //   label:   optional sub-label (e.g., the archive filename)
+          setSecondaryProgress: function (stage, current, total, label) {
+            const toast = document.getElementById('gx-toast');
+            const stageE = document.getElementById('gx-toast-stage');
+            const labelE = document.getElementById('gx-toast-label');
+            const fillE  = document.getElementById('gx-toast-fill');
+            if (!toast) return;
+            if (stage) stageE.textContent = stage;
+            labelE.textContent = label || (total > 0 ? (current + ' / ' + total) : '');
+            const pct = total > 0 ? Math.max(0, Math.min(100, (current / total) * 100)) : 0;
+            fillE.style.width = pct.toFixed(1) + '%';
+            toast.classList.add('gx-show');
+          },
+          hideSecondaryProgress: function () {
+            const toast = document.getElementById('gx-toast');
+            if (toast) toast.classList.remove('gx-show');
+          }
+        };
+
+        // ------------------------------------------------------------------
+        // Canvas backing buffer is locked to 800x600 — the engine's
+        // hardcoded internal resolution (DEFAULT_DISPLAY_WIDTH/HEIGHT in
+        // GameDefines.h, set on every Begin_Render via Set_Viewport). The
+        // 2D UI (menus, HUD, button positions) is laid out in those
+        // coordinates, so resizing the backing store would push the
+        // buttons out of frame. Instead we let the wrapper (#gx-canvas-wrap)
+        // CSS-scale the canvas to the visible viewport while preserving
+        // the 4:3 aspect ratio so text + textures stay sharp-ish under
+        // browser bilerp.
+        //
+        // We have to fight a couple of forces that try to "auto-fit" the
+        // canvas backing to its CSS size:
+        //   - Emscripten's SDL2 port sometimes resizes the canvas during
+        //     SDL_CreateWindow to match the displayed size.
+        //   - `emscripten_set_canvas_element_size` from the C++ side will
+        //     also overwrite the attributes.
+        // We pin the size at three points (preRun, runtime exec, every
+        // ResizeObserver callback) and always fight back. The C++
+        // `GX_OnCanvasResize` is overridden to be a no-op below by
+        // intercepting the ccall — it has no business resizing us when
+        // the engine resolution is fixed.
+        // ------------------------------------------------------------------
+        const GX_FIXED_W = 800;
+        const GX_FIXED_H = 600;
+        const gxLockCanvasBacking = function () {
+          const canvasEl = document.getElementById('canvas');
+          if (!canvasEl) return;
+          if (canvasEl.width !== GX_FIXED_W) canvasEl.width = GX_FIXED_W;
+          if (canvasEl.height !== GX_FIXED_H) canvasEl.height = GX_FIXED_H;
+        };
+        gxLockCanvasBacking();
+        // Re-pin on any resize-like event Emscripten may trigger.
+        if (typeof ResizeObserver !== 'undefined') {
+          try {
+            new ResizeObserver(gxLockCanvasBacking)
+                .observe(document.getElementById('canvas'));
+          } catch (e) { /* fall back to interval */ }
+        }
+        // Belt-and-braces: setInterval to repin in case ResizeObserver
+        // misses an Emscripten-side write. Cheap (1Hz, two int compares).
+        setInterval(gxLockCanvasBacking, 1000);
+
+        // ------------------------------------------------------------------
+        // WebGL context loss — the browser may drop the GL context if the GPU
+        // is reset, the tab is throttled too long, or the OS swaps it out.
+        // Without preventDefault() the browser would tear down the page; we
+        // catch the event and show a graceful "context lost" overlay with a
+        // reload button.
+        //
+        // Recovery via webglcontextrestored is theoretically possible but
+        // would need the engine to re-upload every texture / VBO / shader,
+        // which it isn't designed to do — so we treat loss as terminal and
+        // ask the user to reload.
+        // ------------------------------------------------------------------
+        (function () {
+          const canvasEl = document.getElementById('canvas');
+          if (!canvasEl) return;
+          canvasEl.addEventListener('webglcontextlost', function (e) {
+            e.preventDefault();
+            console.warn('[GeneralsX] WebGL context lost');
+            window.GeneralsX.showError(
+                'The browser dropped the WebGL graphics context. ' +
+                'This usually happens after a GPU reset, a long tab ' +
+                'background, or a graphics-driver issue. Reload the page ' +
+                'to start a fresh context.',
+                'Graphics context lost');
+          }, false);
+          canvasEl.addEventListener('webglcontextrestored', function () {
+            console.info('[GeneralsX] WebGL context restored ' +
+                         '(but engine cannot resume — reload still required)');
+          }, false);
+        })();
+
+        // ------------------------------------------------------------------
+        // Reload button on the error overlay.
+        // ------------------------------------------------------------------
+        (function () {
+          const btn = document.getElementById('gx-error-reload');
+          if (btn) {
+            btn.addEventListener('click', function () {
+              window.location.reload();
+            });
+          }
+        })();
+
+        // ------------------------------------------------------------------
+        // Pointer Lock — owned by the JS side because the request must be
+        // synchronous with the user gesture, and SDL2-Emscripten queues mouse
+        // events to drain from rAF (no longer in the gesture stack).
+        //
+        // Convention: right-mouse-button-down begins the RTS camera pan.
+        // We request pointer lock, the browser hides the cursor and switches
+        // mousemove events to deliver `movementX`/`movementY` deltas. SDL2
+        // surfaces those as event.motion.xrel/yrel; our C++ side accumulates
+        // them into a virtual cursor position.
+        // ------------------------------------------------------------------
+        const canvasEl = document.getElementById('canvas');
+        if (canvasEl) {
+          canvasEl.addEventListener('mousedown', function (e) {
+            // 2 = right button. Only request if not already locked.
+            if (e.button === 2 && document.pointerLockElement !== canvasEl) {
+              const req = canvasEl.requestPointerLock || canvasEl.mozRequestPointerLock;
+              if (req) {
+                try { req.call(canvasEl); }
+                catch (err) { /* browser may decline; harmless */ }
+              }
+            }
+          });
+          canvasEl.addEventListener('mouseup', function (e) {
+            if (e.button === 2 && document.pointerLockElement === canvasEl) {
+              const exit = document.exitPointerLock || document.mozExitPointerLock;
+              if (exit) {
+                try { exit.call(document); }
+                catch (err) { /* harmless */ }
+              }
+            }
+          });
+          // Mirror the lock state into the C++ engine. Module._... is
+          // available once the WASM is instantiated; before that we just
+          // queue the call to fire on first ready event.
+          let lastLockedReported = -1;
+          const reportLock = function () {
+            const locked = document.pointerLockElement === canvasEl ? 1 : 0;
+            if (locked === lastLockedReported) return;
+            lastLockedReported = locked;
+            // ccall is exported (see EXPORTED_RUNTIME_METHODS).
+            if (window.Module && typeof window.Module.ccall === 'function') {
+              try {
+                window.Module.ccall('EmscriptenInput_OnPointerLockChange',
+                                    null, ['number'], [locked]);
+              } catch (err) {
+                console.warn('[GeneralsX] pointer-lock callback failed:', err);
+              }
+            }
+          };
+          document.addEventListener('pointerlockchange', reportLock);
+          document.addEventListener('mozpointerlockchange', reportLock);
+          document.addEventListener('pointerlockerror', function () {
+            console.warn('[GeneralsX] Pointer Lock request was denied');
+          });
+        }
+
+        // --- Default Emscripten Module wiring -------------------------------
+        // The runtime calls these. We translate stdout/stderr into the on-page
+        // log and translate run-dependency progress into the "Downloading"
+        // phase, which runs *before* main() and therefore before the C++
+        // GX_ReportProgress calls take over.
+        const printToOutput = (...args) => {
+          const text = args.join(' ');
+          console.log(text);
+          outputEl.textContent += text + '\n';
+          outputEl.scrollTop = outputEl.scrollHeight;
+        };
+
+        const printErrToOutput = (...args) => {
+          const text = args.join(' ');
+          console.warn(text);
+          outputEl.textContent += text + '\n';
+          outputEl.scrollTop = outputEl.scrollHeight;
+        };
+
+        let runtimeDepsTotal = 0;
+        // ------------------------------------------------------------------
+        // IDBFS mount + initial sync as a runtime dependency.
+        //
+        // The engine reads/writes save games and options.ini under what it
+        // thinks is the user-data directory; on Emscripten we point that at
+        // /userdata, mounted with IDBFS so the contents persist in the
+        // browser's IndexedDB across page reloads. This preRun hook:
+        //   1. Creates /userdata in MEMFS
+        //   2. Mounts IDBFS over it
+        //   3. Calls FS.syncfs(true, ...) to load any previously saved data
+        //      from IndexedDB into MEMFS, BEFORE main() runs (via
+        //      addRunDependency / removeRunDependency, the canonical pattern)
+        //
+        // After main() takes over, the C++ side is responsible for periodic
+        // FS.syncfs(false, ...) flushes — see GX_FlushIdbfs in
+        // EmscriptenMain.cpp.
+        // ------------------------------------------------------------------
+        const idbfsPreRun = function () {
+          try {
+            FS.mkdir('/userdata');
+          } catch (e) {
+            // Already exists — fine.
+          }
+          try {
+            FS.mount(IDBFS, {}, '/userdata');
+          } catch (e) {
+            console.warn('[GeneralsX] IDBFS mount failed:', e);
+            return;
+          }
+          Module.addRunDependency('idbfs-load');
+          stageEl.textContent = 'Loading saved data';
+          FS.syncfs(true, function (err) {
+            if (err) {
+              console.warn('[GeneralsX] IDBFS load failed:', err);
+            } else {
+              console.log('[GeneralsX] IDBFS load complete');
+            }
+            Module.removeRunDependency('idbfs-load');
+          });
+        };
+
+        window.Module = {
+          canvas: document.getElementById('canvas'),
+          print: printToOutput,
+          printErr: printErrToOutput,
+          preRun: [idbfsPreRun],
+          setStatus: function (text) {
+            // Emscripten's setStatus receives strings like
+            //   "Downloading data... (1234/5678)"
+            // We translate that into the "Downloading runtime" stage of the
+            // overall progress bar (the C++ side hasn't started yet).
+            const m = /\((\d+(?:\.\d+)?)\/(\d+)\)/.exec(text || '');
+            if (m) {
+              const cur = parseFloat(m[1]);
+              const tot = parseFloat(m[2]);
+              const frac = tot > 0 ? cur / tot : 0;
+              // Map download progress onto [0%, DOWNLOAD_WEIGHT] of the bar.
+              setOverallPct(frac * DOWNLOAD_WEIGHT * 100);
+              countEl.textContent = `${Math.round(cur).toLocaleString()} / ${Math.round(tot).toLocaleString()}`;
+            }
+            if (text) {
+              const cleanText = text.replace(/\([^)]*\)/g, '').trim();
+              if (cleanText) labelEl.textContent = cleanText;
+            }
+          },
+          monitorRunDependencies: function (left) {
+            runtimeDepsTotal = Math.max(runtimeDepsTotal, left);
+            if (runtimeDepsTotal > 0) {
+              const done = runtimeDepsTotal - left;
+              setOverallPct((done / runtimeDepsTotal) * DOWNLOAD_WEIGHT * 100);
+              countEl.textContent = `${done}/${runtimeDepsTotal}`;
+            }
+            if (left === 0) {
+              stageEl.textContent = 'Booting engine';
+              labelEl.textContent = 'Handing off to native code';
+            }
+          },
+          onAbort: function (reason) {
+            window.GeneralsX.showError('Runtime aborted: ' + reason);
+          }
+        };
+
+        window.addEventListener('error', function (e) {
+          // Don't blow the overlay up on benign asset-not-found warnings — the
+          // engine handles those gracefully. Only show on real exceptions.
+          if (e.error) {
+            window.GeneralsX.showError(
+                (e.error.stack || e.message || String(e)));
+          }
+        });
+
+        // Press F2 in the browser to toggle the on-page log overlay.
+        window.addEventListener('keydown', function (e) {
+          if (e.key === 'F2') {
+            window.GeneralsX.showOutput(
+                !document.body.classList.contains('gx-debug'));
+            e.preventDefault();
+          }
+        });
+      })();
+    </script>
+
+    {{{ SCRIPT }}}
+  </body>
+</html>

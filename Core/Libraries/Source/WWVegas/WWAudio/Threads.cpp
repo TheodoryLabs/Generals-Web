@@ -195,6 +195,55 @@ WWAudioThreadsClass::Flush_Delayed_Release_Objects ()
 
 ///////////////////////////////////////////////////////////////////////////////////////////
 //
+//	Tick_Delayed_Release_Objects
+//
+//	Mirror of one iteration of Delayed_Release_Thread_Proc, but synchronous.
+//	Used by single-threaded builds (Emscripten) where the worker thread never
+//	runs. Walks the release list, frees any object whose `time` deadline has
+//	passed against the current GetTickCount.
+//
+//	GeneralsX @feature WebPort 2026-05-04
+///////////////////////////////////////////////////////////////////////////////////////////
+void
+WWAudioThreadsClass::Tick_Delayed_Release_Objects ()
+{
+	if (m_IsShuttingDown) {
+		// Drop everything — Flush_Delayed_Release_Objects handles its own lock.
+		Flush_Delayed_Release_Objects ();
+		return;
+	}
+
+	CriticalSectionClass::LockClass lock(m_ListMutex);
+
+	const DWORD current_time = ::GetTickCount ();
+
+	DELAYED_RELEASE_INFO *curr = m_ReleaseListHead;
+	DELAYED_RELEASE_INFO *prev = nullptr;
+	DELAYED_RELEASE_INFO *next = nullptr;
+
+	while (curr != nullptr) {
+		next = curr->next;
+
+		if (current_time >= curr->time) {
+			// Unlink and free.
+			if (prev == nullptr) {
+				m_ReleaseListHead = next;
+			} else {
+				prev->next = next;
+			}
+			REF_PTR_RELEASE (curr->object);
+			SAFE_DELETE (curr);
+		} else {
+			prev = curr;
+		}
+
+		curr = next;
+	}
+}
+
+
+///////////////////////////////////////////////////////////////////////////////////////////
+//
 //	Delayed_Release_Thread_Proc
 //
 ///////////////////////////////////////////////////////////////////////////////////////////

@@ -44,6 +44,10 @@
 #include "wwmemlog.h"
 #include "wwprofile.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 ////////////////////////////////////////////////////////////////////////////////////
 //	Local constants
 ////////////////////////////////////////////////////////////////////////////////////
@@ -1262,7 +1266,14 @@ void FontCharsClass::Blit_Char(WCHAR ch, uint16 *dest_ptr, int dest_stride,
     //
     int dest_inc = (dest_stride >> 1);
     uint16 *src_ptr = data->Buffer;
-    dest_ptr += (dest_inc * y) + x;
+    uint16 *dest_row = dest_ptr + (dest_inc * y) + x;
+
+#ifdef __EMSCRIPTEN__
+    static int blit_calls = 0;
+    static int blit_nonzero_total = 0;
+    int local_nonzero = 0;
+    uint16 first_src = data->Buffer[0];
+#endif
 
     //
     //	Simply copy the data from the src buffer to the destination
@@ -1271,13 +1282,30 @@ void FontCharsClass::Blit_Char(WCHAR ch, uint16 *dest_ptr, int dest_stride,
       for (int col = 0; col < data->Width; col++) {
         uint16 curData = *src_ptr;
         if (col < PixelOverlap) {
-          curData |= dest_ptr[col];
+          curData |= dest_row[col];
         }
-        dest_ptr[col] = curData;
+        dest_row[col] = curData;
+#ifdef __EMSCRIPTEN__
+        if (curData != 0) local_nonzero++;
+#endif
         src_ptr++;
       }
-      dest_ptr += dest_inc;
+      dest_row += dest_inc;
     }
+
+#ifdef __EMSCRIPTEN__
+    blit_calls++;
+    blit_nonzero_total += local_nonzero;
+    if (blit_calls <= 8 || (blit_calls % 200) == 0) {
+      EM_ASM({
+        console.log('[Blit_Char]#' + $0 + ' ch=' + $1 + ' w=' + $2 +
+                    ' h=' + $3 + ' x=' + $4 + ' y=' + $5 +
+                    ' nz=' + $6 + ' firstSrc=0x' + ($7).toString(16) +
+                    ' totalNz=' + $8);
+      }, blit_calls, (int)ch, data->Width, CharHeight, x, y,
+         local_nonzero, (int)first_src, blit_nonzero_total);
+    }
+#endif
   }
 
   return;
@@ -1290,19 +1318,100 @@ void FontCharsClass::Blit_Char(WCHAR ch, uint16 *dest_ptr, int dest_stride,
 ////////////////////////////////////////////////////////////////////////////////////
 const FontCharsClassCharDataStruct *FontCharsClass::Store_GDI_Char(WCHAR ch) {
 #ifdef __EMSCRIPTEN__
-  Update_Current_Buffer(8);
+  // GeneralsX @feature WebPort 2026-05-05 — rasterise the glyph via HTML5
+  // Canvas 2D. The engine consumes an array of uint16 pixels: high 4 bits
+  // store the alpha (0..15), low 12 bits are 0x0FFF when the pixel was lit
+  // and 0 otherwise (the engine's text shader uses the alpha and modulates
+  // by the window's text color, so any non-zero color value works as a
+  // "this pixel is part of the glyph" mask).
+  //
+  // We use a single offscreen 64x64 canvas reused across calls (cached on
+  // Module.gxFontCanvas), and writeable scratch space on the C++ stack to
+  // ferry pixel data back into the engine's buffer. The width of each
+  // glyph is whatever Canvas 2D's measureText reports (clamped to the
+  // scratch size), which keeps proportional fonts looking right.
+  enum { MAX_CHAR_W = 32 };
+  enum { MAX_CHAR_H = 32 };
+  uint16 stage_buf[MAX_CHAR_W * MAX_CHAR_H];
+
+  int char_h = CharHeight;
+  if (char_h > MAX_CHAR_H) char_h = MAX_CHAR_H;
+
+  int char_w = EM_ASM_INT(({
+    var charCode = $0;
+    var pointSize = $1;
+    var isBold = $2;
+    var charHeight = $3;
+    var maxW = $4;
+    var bufPtr = $5;
+    var fontName = (typeof Module.gxFontFamily === 'string') ?
+                    Module.gxFontFamily : 'Arial, sans-serif';
+    var canvas = Module.gxFontCanvas;
+    var ctx = Module.gxFontCtx;
+    if (!canvas) {
+      canvas = document.createElement('canvas');
+      canvas.width = 64;
+      canvas.height = 64;
+      Module.gxFontCanvas = canvas;
+      Module.gxFontCtx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx = Module.gxFontCtx;
+    }
+    if (!ctx) return 1;
+    var weight = isBold ? 'bold ' : '';
+    ctx.font = weight + pointSize + 'px ' + fontName;
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = '#fff';
+    var str = String.fromCharCode(charCode);
+    var w = Math.ceil(ctx.measureText(str).width);
+    if (w < 1) w = 1;
+    if (w > maxW) w = maxW;
+    ctx.clearRect(0, 0, 64, 64);
+    // Baseline = ascent ~ 80% of charHeight.
+    ctx.fillText(str, 0, Math.floor(charHeight * 0.8));
+    var img = ctx.getImageData(0, 0, w, charHeight);
+    var px = img.data;
+    var heap = Module.HEAPU16;
+    var dst = bufPtr >> 1;  // uint16 index
+    for (var y = 0; y < charHeight; ++y) {
+      for (var x = 0; x < w; ++x) {
+        var srcIdx = (y * w + x) * 4;
+        // Use the brightness of the glyph (R channel, since we drew white)
+        // not the alpha — Canvas 2D anti-aliasing modulates RGB on a
+        // transparent canvas, so a half-lit pixel has alpha=255 and rgb<255.
+        // Take whichever is brighter to handle both the cleared-canvas and
+        // already-painted-canvas cases.
+        var a = px[srcIdx + 3];
+        var r = px[srcIdx];
+        var v = (r > a) ? r : a;
+        var fourBit = v >> 4;
+        heap[dst + y * w + x] = (v ? 0x0FFF : 0) | (fourBit << 12);
+      }
+    }
+    return w;
+  }), (int)ch, PointSize, IsBold ? 1 : 0, char_h,
+      MAX_CHAR_W, (int)(uintptr_t)stage_buf);
+
+  if (char_w <= 0) char_w = 1;
+  if (char_w > MAX_CHAR_W) char_w = MAX_CHAR_W;
+
+  Update_Current_Buffer(char_w);
+
+  uint16 *dst = BufferList[BufferList.Count() - 1]->Buffer + CurrPixelOffset;
+  for (int i = 0; i < char_w * char_h; ++i) {
+    dst[i] = stage_buf[i];
+  }
+
   FontCharsClassCharDataStruct *char_data = W3DNEW FontCharsClassCharDataStruct;
   char_data->Value = ch;
-  char_data->Width = 8;
-  char_data->Buffer =
-      BufferList[BufferList.Count() - 1]->Buffer + CurrPixelOffset;
+  char_data->Width = char_w;
+  char_data->Buffer = dst;
 
   if (ch < 256) {
     ASCIICharArray[ch] = char_data;
   } else {
     UnicodeCharArray[ch - FirstUnicodeChar] = char_data;
   }
-  CurrPixelOffset += (8 * 12);
+  CurrPixelOffset += char_w * char_h;
   return char_data;
 #else
   int width = PointSize * 2;
@@ -1465,9 +1574,18 @@ void FontCharsClass::Update_Current_Buffer(int char_width) {
 ////////////////////////////////////////////////////////////////////////////////////
 bool FontCharsClass::Create_GDI_Font(const char *font_name) {
 #ifdef __EMSCRIPTEN__
-  PixelOverlap = 0;
-  CharHeight = 12;
-  CharAscent = 10;
+  // GeneralsX @feature WebPort 2026-05-05 — replace the no-op Emscripten
+  // stub. Without real glyph metrics + raster data, every menu button text
+  // renders as nothing (the engine reads from a zero-initialised buffer).
+  // We rasterise on-demand via HTML5 Canvas 2D in Store_GDI_Char below;
+  // here we just need a sensible CharHeight/CharAscent for the layout
+  // code that consumes them. CharHeight is roughly the font's full line
+  // height; for TrueType at point size N that's ~N * 1.2 px at 96 dpi.
+  PixelOverlap = (PointSize / 8 < 1) ? 1 : (PointSize / 8);
+  if (PixelOverlap > 4) PixelOverlap = 4;
+  CharHeight = (PointSize * 6 + 4) / 5;  // ceil(N*1.2)
+  if (CharHeight < 8) CharHeight = 8;
+  CharAscent = (CharHeight * 4) / 5;     // ~80% of total height
   CharOverhang = 0;
   GDIFont = (HFONT)1;
   GDIBitmap = (HBITMAP)1;

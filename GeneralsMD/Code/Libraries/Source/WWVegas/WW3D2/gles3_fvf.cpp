@@ -164,7 +164,8 @@ unsigned int GLES3_FVFDecoder::Get_Tex_Offset(unsigned int n) const {
 // Must be called while the correct VBO is bound to GL_ARRAY_BUFFER.
 // The 'stride' parameter is the vertex size in bytes (should match fvf_size).
 // ============================================================================
-void GLES3_FVFDecoder::Apply_Vertex_Attribs(unsigned int stride) const {
+void GLES3_FVFDecoder::Apply_Vertex_Attribs(unsigned int stride,
+                                             unsigned int base_offset_bytes) const {
     if (stride == 0) stride = fvf_size;
 
     // --- Position (always present) ---
@@ -179,7 +180,7 @@ void GLES3_FVFDecoder::Apply_Vertex_Attribs(unsigned int stride) const {
             GL_FLOAT,
             GL_FALSE,
             stride,
-            (const void*)(uintptr_t)location_offset
+            (const void*)(uintptr_t)(base_offset_bytes + location_offset)
         );
     } else {
         glDisableVertexAttribArray(ATTR_POSITION);
@@ -194,7 +195,7 @@ void GLES3_FVFDecoder::Apply_Vertex_Attribs(unsigned int stride) const {
             GL_FLOAT,
             GL_FALSE,
             stride,
-            (const void*)(uintptr_t)normal_offset
+            (const void*)(uintptr_t)(base_offset_bytes + normal_offset)
         );
     } else {
         glDisableVertexAttribArray(ATTR_NORMAL);
@@ -215,7 +216,7 @@ void GLES3_FVFDecoder::Apply_Vertex_Attribs(unsigned int stride) const {
             GL_UNSIGNED_BYTE,
             GL_TRUE,    // normalize 0-255 → 0.0-1.0
             stride,
-            (const void*)(uintptr_t)diffuse_offset
+            (const void*)(uintptr_t)(base_offset_bytes + diffuse_offset)
         );
     } else {
         glDisableVertexAttribArray(ATTR_COLOR);
@@ -236,7 +237,7 @@ void GLES3_FVFDecoder::Apply_Vertex_Attribs(unsigned int stride) const {
                 GL_FLOAT,
                 GL_FALSE,
                 stride,
-                (const void*)(uintptr_t)texcoord_offset[i]
+                (const void*)(uintptr_t)(base_offset_bytes + texcoord_offset[i])
             );
         } else {
             glDisableVertexAttribArray(attr_loc);
