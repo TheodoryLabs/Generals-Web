@@ -171,41 +171,7 @@ Bool LocalFile::open(const Char *filename, Int access, size_t bufferSize) {
       }
     }
 
-    // GX-TRACE — append to a persistent file so we can read it from JS even
-    // if the trace fired before our console hook attached. Write only paths
-    // we actually care about (shellmap-related) to keep the file small.
-    if (filename) {
-      bool log_it = false;
-      const char *fn = filename;
-      for (const char *p = fn; *p; ++p) {
-        const char a = (char)((*p)|0x20);
-        if (a=='s' && (p[1]|0x20)=='h' && (p[2]|0x20)=='e' && (p[3]|0x20)=='l' && (p[4]|0x20)=='l') {
-          log_it = true; break;
-        }
-        if (a=='m' && (p[1]|0x20)=='a' && (p[2]|0x20)=='p' && p[3]=='.') {
-          log_it = true; break;
-        }
-      }
-      if (log_it) {
-        FILE *gx_trace = fopen("/gx_trace.log", "a");
-        if (gx_trace) {
-          fprintf(gx_trace,
-                  "LocalFile::open BigVFS try fn='%s' vfs='%s'\n",
-                  fn, vfs_path);
-          fclose(gx_trace);
-        }
-        fprintf(stderr,
-                "GX-TRACE: LocalFile::open BigVFS try fn='%s' vfs='%s'\n",
-                fn, vfs_path);
-      }
-    }
     if (Web_VFS_Read_File_Sync(vfs_path, &vfs_data, &vfs_size)) {
-      FILE *gx_trace = fopen("/gx_trace.log", "a");
-      if (gx_trace) {
-        fprintf(gx_trace, "LocalFile::open BigVFS HIT fn='%s' size=%u\n",
-                filename, vfs_size);
-        fclose(gx_trace);
-      }
       // Wrap the fetched memory buffer in a standard FILE* using fmemopen
       m_file = fmemopen(vfs_data, vfs_size, "rb");
       if (m_file) {
