@@ -789,7 +789,14 @@ int main(int argc, char *argv[]) {
     // local debugging once the WorldHeightMap parsing is fixed.
     if (TheWritableGlobalData) {
       const int opt_in = EM_ASM_INT(({
-        return (window.GeneralsX && window.GeneralsX.enableShellMap) ? 1 : 0;
+        if (window.GeneralsX && window.GeneralsX.enableShellMap) return 1;
+        // Also accept ?shellmap=1 / #shellmap query string so the flag
+        // survives page reloads without needing a JS hook to fire first.
+        try {
+          if (location.search && location.search.indexOf('shellmap=1') >= 0) return 1;
+          if (location.hash && location.hash.indexOf('shellmap') >= 0) return 1;
+        } catch(e) {}
+        return 0;
       }));
       fprintf(stderr,
               "GX-TRACE: WebPort post-init: m_shellMapOn was=%d, opt_in=%d, "
