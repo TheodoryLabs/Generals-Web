@@ -17,6 +17,7 @@
 #include "windows_base.h"
 #include <vector>
 #include <cstdint>
+#include <cstring>
 // Forward declaration — defined in gles3_wrapper.cpp (which has SDL access)
 void GLES3_Swap_Buffers();
 
@@ -426,31 +427,26 @@ static inline UINT D3DFmt_BPP(D3DFORMAT fmt) {
 // CPU-buffer-backed surface — returned by GetSurfaceLevel / CreateImageSurface.
 // Release() deletes this object since it's always heap-allocated.
 // ---------------------------------------------------------------------------
+struct Emscripten_IDirect3DTexture8;
+
 struct Emscripten_IDirect3DSurface8 : public IDirect3DSurface8 {
     UINT   Width;
     UINT   Height;
     UINT   BytesPerPixel;
     D3DFORMAT Format;
     std::vector<uint8_t> Pixels;
+    Emscripten_IDirect3DTexture8 *ParentTexture = nullptr;
+    UINT ParentLevel = 0;
 
-    Emscripten_IDirect3DSurface8()
-        : Width(0), Height(0), BytesPerPixel(4), Format(D3DFMT_A8R8G8B8) {}
-
-    Emscripten_IDirect3DSurface8(UINT w, UINT h, D3DFORMAT fmt)
-        : Width(w), Height(h), BytesPerPixel(D3DFmt_BPP(fmt)), Format(fmt)
-    {
-        Pixels.assign((size_t)w * h * BytesPerPixel, 0);
-    }
+    Emscripten_IDirect3DSurface8();
+    Emscripten_IDirect3DSurface8(UINT w, UINT h, D3DFORMAT fmt);
+    virtual ~Emscripten_IDirect3DSurface8();
 
     // Always heap-allocated — proper COM refcounting
     ULONG m_comRefCount = 1;
     virtual HRESULT QueryInterface(REFIID, void **) override { return 0; }
-    virtual ULONG   AddRef()  override { return ++m_comRefCount; }
-    virtual ULONG   Release() override {
-        ULONG r = --m_comRefCount;
-        if (r == 0) { delete this; }
-        return r;
-    }
+    virtual ULONG   AddRef()  override;
+    virtual ULONG   Release() override;
 
     virtual HRESULT GetDesc(D3DSURFACE_DESC *pDesc) override {
         if (pDesc) {
@@ -460,18 +456,9 @@ struct Emscripten_IDirect3DSurface8 : public IDirect3DSurface8 {
         }
         return 0;
     }
-    virtual HRESULT LockRect(D3DLOCKED_RECT *pLockedRect, const RECT *,
-                             DWORD) override {
-        if (pLockedRect && !Pixels.empty()) {
-            pLockedRect->Pitch = (int)(Width * BytesPerPixel);
-            pLockedRect->pBits = Pixels.data();
-        } else if (pLockedRect) {
-            pLockedRect->Pitch = 0;
-            pLockedRect->pBits = nullptr;
-        }
-        return 0;
-    }
-    virtual HRESULT UnlockRect() override { return 0; }
+    virtual HRESULT LockRect(D3DLOCKED_RECT *pLockedRect, const RECT *pRect,
+                             DWORD Flags) override;
+    virtual HRESULT UnlockRect() override;
 };
 
 // ---------------------------------------------------------------------------
@@ -501,8 +488,13 @@ struct Emscripten_IDirect3DTexture8 : public IDirect3DTexture8 {
     { _alloc_levels(); }
 
     ~Emscripten_IDirect3DTexture8() {
-        if (gl_tex_id) { glDeleteTextures(1, &gl_tex_id); gl_tex_id = 0; }
+        if (gl_tex_id) {
+            GLES3_Unregister_Texture(gl_tex_id);
+            glDeleteTextures(1, &gl_tex_id);
+            gl_tex_id = 0;
+        }
     }
+
 
     void _alloc_levels() {
         levels.resize(LevelCount);
@@ -538,10 +530,23 @@ struct Emscripten_IDirect3DTexture8 : public IDirect3DTexture8 {
     // For uncompressed textures: Create_Texture uploads level 0 and calls
     // glGenerateMipmap to auto-generate the rest.
     GLuint Upload_To_GL() {
-        if (gl_tex_id) { glDeleteTextures(1, &gl_tex_id); gl_tex_id = 0; }
         if (levels.empty() || levels[0].pixels.empty()) return 0;
 
         bool dxt = _is_dxt(Fmt);
+
+        if (gl_tex_id && !dxt) {
+            GLES3_TextureConverter::Update_Texture(
+                gl_tex_id, Width, Height, (unsigned int)Fmt,
+                (unsigned int)LevelCount, levels[0].pixels.data());
+            dirty = false;
+            return gl_tex_id;
+        }
+
+        if (gl_tex_id) {
+            GLES3_Unregister_Texture(gl_tex_id);
+            glDeleteTextures(1, &gl_tex_id);
+            gl_tex_id = 0;
+        }
 
         if (dxt && LevelCount > 1) {
             // Pass mip_levels=1 so Create_Texture sets up the texture object
@@ -549,6 +554,7 @@ struct Emscripten_IDirect3DTexture8 : public IDirect3DTexture8 {
             gl_tex_id = GLES3_TextureConverter::Create_Texture(
                 Width, Height, (unsigned int)Fmt,
                 1, levels[0].pixels.data());
+            GLES3_Register_Texture(gl_tex_id, true);
 
             // Ensure driver knows how many levels to expect
             glBindTexture(GL_TEXTURE_2D, gl_tex_id);
@@ -614,8 +620,9 @@ struct Emscripten_IDirect3DTexture8 : public IDirect3DTexture8 {
         UINT idx = (Level < LevelCount) ? Level : 0;
         Emscripten_IDirect3DSurface8 *surf =
             new Emscripten_IDirect3DSurface8(levels[idx].w, levels[idx].h, Fmt);
-        // Share the pixel data so locks on the surface see the same bytes
-        surf->Pixels = levels[idx].pixels;
+        surf->ParentTexture = this;
+        surf->ParentLevel = idx;
+        this->AddRef();
         surf->BytesPerPixel = BPP;
         *ppS = surf;
         return 0;
@@ -630,6 +637,59 @@ struct Emscripten_IDirect3DTexture8 : public IDirect3DTexture8 {
         return 0;
     }
 };
+
+inline Emscripten_IDirect3DSurface8::Emscripten_IDirect3DSurface8()
+    : Width(0), Height(0), BytesPerPixel(4), Format(D3DFMT_A8R8G8B8) {}
+
+inline Emscripten_IDirect3DSurface8::Emscripten_IDirect3DSurface8(UINT w, UINT h, D3DFORMAT fmt)
+    : Width(w), Height(h), BytesPerPixel(D3DFmt_BPP(fmt)), Format(fmt)
+{
+    Pixels.assign((size_t)w * h * BytesPerPixel, 0);
+}
+
+inline Emscripten_IDirect3DSurface8::~Emscripten_IDirect3DSurface8() {
+    if (ParentTexture) {
+        ParentTexture->Release();
+    }
+}
+
+inline ULONG Emscripten_IDirect3DSurface8::AddRef() {
+    return ++m_comRefCount;
+}
+
+inline ULONG Emscripten_IDirect3DSurface8::Release() {
+    ULONG r = --m_comRefCount;
+    if (r == 0) { delete this; }
+    return r;
+}
+
+inline HRESULT Emscripten_IDirect3DSurface8::LockRect(D3DLOCKED_RECT *pLockedRect, const RECT *, DWORD) {
+    if (pLockedRect) {
+        if (ParentTexture) {
+            if (ParentLevel < ParentTexture->LevelCount && !ParentTexture->levels[ParentLevel].pixels.empty()) {
+                pLockedRect->Pitch = (int)(Width * BytesPerPixel);
+                pLockedRect->pBits = ParentTexture->levels[ParentLevel].pixels.data();
+            } else {
+                pLockedRect->Pitch = 0;
+                pLockedRect->pBits = nullptr;
+            }
+        } else if (!Pixels.empty()) {
+            pLockedRect->Pitch = (int)(Width * BytesPerPixel);
+            pLockedRect->pBits = Pixels.data();
+        } else {
+            pLockedRect->Pitch = 0;
+            pLockedRect->pBits = nullptr;
+        }
+    }
+    return 0;
+}
+
+inline HRESULT Emscripten_IDirect3DSurface8::UnlockRect() {
+    if (ParentTexture) {
+        ParentTexture->dirty = true;
+    }
+    return 0;
+}
 
 // ---------------------------------------------------------------------------
 // Vertex buffer — CPU-side byte buffer + GL VBO uploaded on demand
@@ -1070,7 +1130,69 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
     }
     virtual HRESULT CopyRects(IDirect3DSurface8 *pSrc, const RECT *pSrcRectsArray,
                             UINT cRects, IDirect3DSurface8 *pDst,
-                            const POINT *pDstPointsArray) override { return 0; }
+                            const POINT *pDstPointsArray) override {
+        if (!pSrc || !pDst) return 0;
+        Emscripten_IDirect3DSurface8 *src = static_cast<Emscripten_IDirect3DSurface8 *>(pSrc);
+        Emscripten_IDirect3DSurface8 *dst = static_cast<Emscripten_IDirect3DSurface8 *>(pDst);
+
+        D3DLOCKED_RECT srcLock, dstLock;
+        if (src->LockRect(&srcLock, nullptr, 0) != 0) return 0;
+        if (dst->LockRect(&dstLock, nullptr, 0) != 0) {
+            src->UnlockRect();
+            return 0;
+        }
+
+        uint8_t *srcBits = static_cast<uint8_t *>(srcLock.pBits);
+        uint8_t *dstBits = static_cast<uint8_t *>(dstLock.pBits);
+
+        if (srcBits && dstBits) {
+            if (pSrcRectsArray && cRects > 0) {
+                for (UINT i = 0; i < cRects; ++i) {
+                    const RECT &srect = pSrcRectsArray[i];
+                    POINT dpoint = { srect.left, srect.top };
+                    if (pDstPointsArray) {
+                        dpoint = pDstPointsArray[i];
+                    }
+                    
+                    int width = srect.right - srect.left;
+                    int height = srect.bottom - srect.top;
+                    int bytesPerPixel = (int)src->BytesPerPixel;
+                    
+                    for (int y = 0; y < height; ++y) {
+                        int srcY = srect.top + y;
+                        int dstY = dpoint.y + y;
+                        if (srcY >= 0 && srcY < (int)src->Height && dstY >= 0 && dstY < (int)dst->Height) {
+                            uint8_t *srcRow = srcBits + srcY * srcLock.Pitch + srect.left * bytesPerPixel;
+                            uint8_t *dstRow = dstBits + dstY * dstLock.Pitch + dpoint.x * (int)dst->BytesPerPixel;
+                            int copyBytes = width * bytesPerPixel;
+                            int dstXOffset = dpoint.x * (int)dst->BytesPerPixel;
+                            if (dstXOffset + copyBytes > (int)(dst->Width * dst->BytesPerPixel)) {
+                                copyBytes = (int)(dst->Width * dst->BytesPerPixel) - dstXOffset;
+                            }
+                            if (copyBytes > 0) {
+                                memcpy(dstRow, srcRow, copyBytes);
+                            }
+                        }
+                    }
+                }
+            } else {
+                int copyWidth = (src->Width < dst->Width) ? src->Width : dst->Width;
+                int copyHeight = (src->Height < dst->Height) ? src->Height : dst->Height;
+                int bytesPerPixel = (int)src->BytesPerPixel;
+                int rowSize = copyWidth * bytesPerPixel;
+
+                for (int y = 0; y < copyHeight; ++y) {
+                    uint8_t *srcRow = srcBits + y * srcLock.Pitch;
+                    uint8_t *dstRow = dstBits + y * dstLock.Pitch;
+                    memcpy(dstRow, srcRow, rowSize);
+                }
+            }
+        }
+
+        dst->UnlockRect();
+        src->UnlockRect();
+        return 0;
+    }
     virtual HRESULT SetVertexShaderConstant(DWORD Register,
                                           const void *pConstantData,
                                           DWORD ConstantCount) override { return 0; }

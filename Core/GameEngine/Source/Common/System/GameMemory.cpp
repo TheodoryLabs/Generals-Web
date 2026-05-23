@@ -173,7 +173,7 @@ static Int theStackTraceDepth = 16;
 
 #endif
 
-bool g_isDma32TracingEnabledNow = true;
+bool g_isDma32TracingEnabledNow = false;
 
 #ifdef MEMORYPOOL_DEBUG
 
@@ -205,7 +205,7 @@ static Bool theMainInitFlag = false;
 // ----------------------------------------------------------------------------
 
 /// @todo srj -- make this work for 8
-#define MEM_BOUND_ALIGNMENT 4
+#define MEM_BOUND_ALIGNMENT 8
 
 static Int roundUpMemBound(Int i);
 static void *sysAllocateDoNotZero(Int numBytes);
@@ -394,7 +394,7 @@ public:
    so ctors/dtors are never executed, nor would virtual functions work -- I
    know, it's a little evil.
 */
-class MemoryPoolSingleBlock {
+class alignas(8) MemoryPoolSingleBlock {
 private:
   MemoryPoolBlob *m_owningBlob; ///< will be null if the single block was
                                 ///< allocated via sysAllocate()

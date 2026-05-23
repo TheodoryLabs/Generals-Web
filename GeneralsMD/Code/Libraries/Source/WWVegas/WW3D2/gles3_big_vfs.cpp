@@ -31,36 +31,73 @@ EM_ASYNC_JS(
     (const char *url, unsigned int start, unsigned int end, void *buffer), {
       try {
         const urlStr = UTF8ToString(url);
-        const headers = new Headers();
-        headers.append('Range', 'bytes=' + start + '-' + end);
-        const response = await fetch(urlStr, {headers : headers});
-
-        if (!response.ok && response.status != 206 && response.status != 200) {
-          console.error("Fetch range failed with status", response.status);
-          return -response.status; // return negative status on HTTP error
+        const cacheKey = urlStr + '?range=' + start + '-' + end;
+        let response = null;
+        let cache = null;
+        
+        if (typeof caches !== 'undefined') {
+          try {
+            cache = await caches.open('generalsx-vfs-cache');
+            response = await cache.match(cacheKey);
+            if (response) {
+              // Optional debug message to confirm cache hit
+              // console.log("VFS CACHE HIT:", cacheKey);
+            }
+          } catch (cacheErr) {
+            console.warn("Cache open/match error:", cacheErr);
+          }
         }
 
-        const arrayBuffer = await response.arrayBuffer();
         let u8;
-        if (response.status === 200) {
+        if (response) {
+          const arrayBuffer = await response.arrayBuffer();
+          u8 = new Uint8Array(arrayBuffer);
+        } else {
+          const headers = new Headers();
+          headers.append('Range', 'bytes=' + start + '-' + end);
+          const netResponse = await fetch(urlStr, {headers : headers});
+
+          if (!netResponse.ok && netResponse.status != 206 && netResponse.status != 200) {
+            console.error("Fetch range failed with status", netResponse.status);
+            return -netResponse.status;
+          }
+
+          const arrayBuffer = await netResponse.arrayBuffer();
+          if (netResponse.status === 200) {
             // Server didn't support Range requests and returned the whole file
             const byteLen = arrayBuffer.byteLength;
             if (start >= byteLen) { return 0; }
             let sliceEnd = end + 1;
             if (sliceEnd > byteLen) { sliceEnd = byteLen; }
             u8 = new Uint8Array(arrayBuffer, start, sliceEnd - start);
-        } else {
+          } else {
             // Server returned 206 Partial Content
             let byteLen = arrayBuffer.byteLength;
             const expectedLen = end - start + 1;
             if (byteLen > expectedLen) {
-                byteLen = expectedLen;
+              byteLen = expectedLen;
             }
             u8 = new Uint8Array(arrayBuffer, 0, byteLen);
-        }
-        HEAPU8.set(u8, buffer);
+          }
 
-        return u8.length; // Return actual bytes read
+          if (cache) {
+            try {
+              const cacheResponse = new Response(u8, {
+                status: 200,
+                headers: {
+                  'Content-Type': 'application/octet-stream',
+                  'Content-Length': u8.length.toString()
+                }
+              });
+              await cache.put(cacheKey, cacheResponse);
+            } catch (cachePutErr) {
+              console.warn("Cache put error:", cachePutErr);
+            }
+          }
+        }
+
+        HEAPU8.set(u8, buffer);
+        return u8.length;
       } catch (e) {
         if (typeof Module != 'undefined' && Module.printErr) {
           Module.printErr("Fetch_Range_JS exception: " + e.stack);

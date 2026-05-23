@@ -35,6 +35,7 @@
 // SYSTEM INCLUDES ////////////////////////////////////////////////////////////////////////////////
 #include <stdlib.h>
 #include <windows.h>
+#include <cmath>
 
 // USER INCLUDES //////////////////////////////////////////////////////////////////////////////////
 #include "Lib/BaseType.h"
@@ -215,9 +216,19 @@ void W3DView::setWidth(Int width)
  	vMax.X=(Real)(m_originX+width)/(Real)TheDisplay->getWidth();
  	m_3DCamera->Set_Viewport(vMin,vMax);
 
-	//we want to maintain the same scale, so we'll need to adjust the fov.
-	//default W3D fov for full-screen is 50 degrees.
-	m_3DCamera->Set_View_Plane((Real)width/(Real)TheDisplay->getWidth()*DEG_TO_RADF(50.0f),-1);
+	// Hor+ widescreen camera calculations:
+	// We want to keep the vertical FOV identical to a reference 4:3 display
+	// that runs at 50 degrees horizontal FOV.
+	Real ref_aspect = 4.0f / 3.0f;
+	Real ref_hfov = (Real)width / (Real)TheDisplay->getWidth() * DEG_TO_RADF(50.0f);
+	Real ref_width_half = std::tan(ref_hfov / 2.0f);
+	Real ref_height_half = ref_width_half / ref_aspect;
+
+	Real actual_aspect = (Real)width / (Real)getHeight();
+	Real actual_width_half = actual_aspect * ref_height_half;
+	Real actual_hfov = 2.0f * std::atan(actual_width_half);
+
+	m_3DCamera->Set_View_Plane(actual_hfov, -1);
 
 	m_cameraAreaConstraintsValid = false;
 	m_recalcCamera = true;
@@ -262,10 +273,25 @@ void W3DView::buildCameraPosition( Vector3& sourcePos, Vector3& targetPos )
 
 	if (m_cameraAreaConstraintsValid)
 	{
-		pos.x = maxf(m_cameraAreaConstraints.lo.x, pos.x);
-		pos.x = minf(m_cameraAreaConstraints.hi.x, pos.x);
-		pos.y = maxf(m_cameraAreaConstraints.lo.y, pos.y);
-		pos.y = minf(m_cameraAreaConstraints.hi.y, pos.y);
+		if (m_cameraAreaConstraints.lo.x > m_cameraAreaConstraints.hi.x)
+		{
+			pos.x = 0.5f * (m_cameraAreaConstraints.lo.x + m_cameraAreaConstraints.hi.x);
+		}
+		else
+		{
+			pos.x = maxf(m_cameraAreaConstraints.lo.x, pos.x);
+			pos.x = minf(m_cameraAreaConstraints.hi.x, pos.x);
+		}
+
+		if (m_cameraAreaConstraints.lo.y > m_cameraAreaConstraints.hi.y)
+		{
+			pos.y = 0.5f * (m_cameraAreaConstraints.lo.y + m_cameraAreaConstraints.hi.y);
+		}
+		else
+		{
+			pos.y = maxf(m_cameraAreaConstraints.lo.y, pos.y);
+			pos.y = minf(m_cameraAreaConstraints.hi.y, pos.y);
+		}
 	}
 
 	sourcePos.X = m_cameraOffset.x;
@@ -570,10 +596,25 @@ void W3DView::setCameraTransform()
 		if (m_cameraAreaConstraintsValid)
 		{
 			Coord3D pos = *getPosition();
-			pos.x = maxf(m_cameraAreaConstraints.lo.x, pos.x);
-			pos.x = minf(m_cameraAreaConstraints.hi.x, pos.x);
-			pos.y = maxf(m_cameraAreaConstraints.lo.y, pos.y);
-			pos.y = minf(m_cameraAreaConstraints.hi.y, pos.y);
+			if (m_cameraAreaConstraints.lo.x > m_cameraAreaConstraints.hi.x)
+			{
+				pos.x = 0.5f * (m_cameraAreaConstraints.lo.x + m_cameraAreaConstraints.hi.x);
+			}
+			else
+			{
+				pos.x = maxf(m_cameraAreaConstraints.lo.x, pos.x);
+				pos.x = minf(m_cameraAreaConstraints.hi.x, pos.x);
+			}
+
+			if (m_cameraAreaConstraints.lo.y > m_cameraAreaConstraints.hi.y)
+			{
+				pos.y = 0.5f * (m_cameraAreaConstraints.lo.y + m_cameraAreaConstraints.hi.y);
+			}
+			else
+			{
+				pos.y = maxf(m_cameraAreaConstraints.lo.y, pos.y);
+				pos.y = minf(m_cameraAreaConstraints.hi.y, pos.y);
+			}
 			setPosition(&pos);
 		}
 	}
@@ -1901,7 +1942,21 @@ void W3DView::setDefaultView(Real pitch, Real angle, Real maxHeight)
 	// MDC - we no longer want to rotate maps (design made all of them right to begin with)
 	//	m_defaultAngle = angle * M_PI/180.0f;
 	m_defaultPitch = pitch;
-	m_maxHeightAboveGround = TheGlobalData->m_maxCameraHeight*maxHeight;
+
+	Real aspect = 4.0f / 3.0f;
+	if (getHeight() > 0)
+	{
+		aspect = (Real)getWidth() / (Real)getHeight();
+	}
+	Real aspect_scale = 1.0f;
+	if (aspect > 1.34f)
+	{
+		aspect_scale = aspect / (4.0f / 3.0f);
+	}
+
+	m_maxHeightAboveGround = TheGlobalData->m_maxCameraHeight * maxHeight * aspect_scale;
+	m_minHeightAboveGround = TheGlobalData->m_minCameraHeight * aspect_scale;
+
 	if (m_minHeightAboveGround > m_maxHeightAboveGround)
 		m_maxHeightAboveGround = m_minHeightAboveGround;
 }

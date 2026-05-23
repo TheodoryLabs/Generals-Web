@@ -387,12 +387,12 @@ AudioHandle AudioManager::addAudioEvent(const AudioEventRTS *eventToAdd)
 		return AHSV_NoSound;
 	}
 
-#ifdef INTENSIVE_AUDIO_DEBUG
-	DEBUG_LOG(("AUDIO (%d): Received addAudioEvent('%s')", TheGameLogic->getFrame(), eventToAdd->getEventName().str()));
-#endif
+	printf("[GameAudio] addAudioEvent: Received sound '%s'\n", eventToAdd->getEventName().str());
+
 	if (!eventToAdd->getAudioEventInfo()) {
 		getInfoForAudioEvent(eventToAdd);
 		if (!eventToAdd->getAudioEventInfo()) {
+			printf("[GameAudio] addAudioEvent WARNING: No info for requested audio event '%s'\n", eventToAdd->getEventName().str());
 			DEBUG_CRASH(("No info for requested audio event '%s'", eventToAdd->getEventName().str()));
 			return AHSV_Error;
 		}
@@ -401,24 +401,30 @@ AudioHandle AudioManager::addAudioEvent(const AudioEventRTS *eventToAdd)
 	const AudioType soundType = eventToAdd->getAudioEventInfo()->m_soundType;
 
 	// Check if audio type is on
-	// TheSuperHackers @info Zero audio volume is not a fail condition, because music, speech and sounds
-	// still need to be in flight in case the user raises the volume on runtime after the audio was already triggered.
 	switch (soundType)
 	{
 		case AT_Music:
-			if (!isOn(AudioAffect_Music))
+			if (!isOn(AudioAffect_Music)) {
+				printf("[GameAudio] addAudioEvent: AT_Music is off\n");
 				return AHSV_NoSound;
+			}
 			break;
 		case AT_SoundEffect:
-			if (!isOn(AudioAffect_Sound) || !isOn(AudioAffect_Sound3D))
+			if (!isOn(AudioAffect_Sound) || !isOn(AudioAffect_Sound3D)) {
+				printf("[GameAudio] addAudioEvent: AT_SoundEffect is off (sound=%d, sound3D=%d)\n", isOn(AudioAffect_Sound), isOn(AudioAffect_Sound3D));
 				return AHSV_NoSound;
+			}
 			break;
 		case AT_Streaming:
 			// if we're currently playing uninterruptable speech, then disallow the addition of this sample
-			if (getDisallowSpeech())
+			if (getDisallowSpeech()) {
+				printf("[GameAudio] addAudioEvent: disallow speech is TRUE\n");
 				return AHSV_NoSound;
-			if (!isOn(AudioAffect_Speech))
+			}
+			if (!isOn(AudioAffect_Speech)) {
+				printf("[GameAudio] addAudioEvent: AT_Streaming is off\n");
 				return AHSV_NoSound;
+			}
 			break;
 	}
 
@@ -434,6 +440,7 @@ AudioHandle AudioManager::addAudioEvent(const AudioEventRTS *eventToAdd)
 
 	if (!logicalAudio && notForLocal)
 	{
+		printf("[GameAudio] addAudioEvent: not for local (logicalAudio=%d, notForLocal=%d)\n", logicalAudio, notForLocal);
 		return AHSV_NotForLocal;
 	}
 
@@ -454,26 +461,30 @@ AudioHandle AudioManager::addAudioEvent(const AudioEventRTS *eventToAdd)
 #if RETAIL_COMPATIBLE_CRC
 	if (notForLocal)
 	{
+		printf("[GameAudio] addAudioEvent: RETAIL_COMPATIBLE_CRC not for local\n");
 		releaseAudioEventRTS(audioEvent);
 		return AHSV_NotForLocal;
 	}
 #endif
 
+	printf("[GameAudio] addAudioEvent: sound '%s' volume=%f, minVolume=%f, filename='%s'\n",
+		audioEvent->getEventName().str(), audioEvent->getVolume(), m_audioSettings->m_minVolume, audioEvent->getFilename().str());
+
 	// cull muted audio
 	if (audioEvent->getVolume() < m_audioSettings->m_minVolume) {
-#ifdef INTENSIVE_AUDIO_DEBUG
-		DEBUG_LOG((" - culled due to muting (%d).", audioEvent->getVolume()));
-#endif
+		printf("[GameAudio] addAudioEvent: culled due to muting\n");
 		releaseAudioEventRTS(audioEvent);
 		return AHSV_Muted;
 	}
 
 	if (soundType == AT_Music)
 	{
+		printf("[GameAudio] addAudioEvent: dispatching to Music\n");
 		m_music->addAudioEvent(audioEvent);
 	}
 	else
 	{
+		printf("[GameAudio] addAudioEvent: dispatching to Sound\n");
 		//Possible to nuke audioEvent inside.
 		m_sound->addAudioEvent(audioEvent);
 	}

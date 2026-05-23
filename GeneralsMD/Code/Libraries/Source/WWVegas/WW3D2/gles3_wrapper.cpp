@@ -24,6 +24,7 @@
 #include <cstring>
 #include <cstdio>
 #include <cmath>
+#include <vector>
 
 // Forward-declare SDL types so we don't need <SDL.h> at compile time.
 // The linker resolves SDL_GL_SwapWindow via -sUSE_SDL=2 at link time.
@@ -37,11 +38,32 @@ extern SDL_Window *TheSDL3Window;
 // ============================================================================
 // Static state
 // ============================================================================
+#include <unordered_map>
+
 static GLES3_PipelineState g_State;
 static bool g_Initialized = false;
+static std::unordered_map<GLuint, bool> g_TextureHasMipmaps;
+
+void GLES3_Register_Texture(GLuint tex, bool has_mipmaps) {
+    g_TextureHasMipmaps[tex] = has_mipmaps;
+}
+
+void GLES3_Unregister_Texture(GLuint tex) {
+    g_TextureHasMipmaps.erase(tex);
+}
+
+bool GLES3_Texture_Has_Mipmaps(GLuint tex) {
+    auto it = g_TextureHasMipmaps.find(tex);
+    if (it != g_TextureHasMipmaps.end()) {
+        return it->second;
+    }
+    return false;
+}
+
 
 // Shader manager statics
 GLuint GLES3_ShaderManager::cached_programs[256] = {0};
+GLES3_ProgramUniformLocations GLES3_ShaderManager::cached_locations[256];
 
 // ============================================================================
 // Helper: DX8 Blend Mode → GL Blend Factor
@@ -129,10 +151,12 @@ GLenum FilterMode_To_GL(unsigned int dx8_filter) {
 }
 
 void Matrix4x4_To_GL(const float* src_row_major, float* dst_col_major) {
-    // DX8 uses row-major matrices, OpenGL uses column-major
-    for (int r = 0; r < 4; r++)
-        for (int c = 0; c < 4; c++)
-            dst_col_major[c * 4 + r] = src_row_major[r * 4 + c];
+    // DX8 uses row-major matrices, OpenGL uses column-major.
+    // Since we multiply matrices on the left of column vectors in the shader
+    // (e.g., u_World * vec4), and DX8 multiplies row vectors on the left of row-major matrices,
+    // the row-major memory layout read by GL as column-major is already the correct transpose (M^T).
+    // Therefore, we do NOT transpose the memory in code. Doing so would warp translations and projection.
+    memcpy(dst_col_major, src_row_major, 16 * sizeof(float));
 }
 
 } // namespace GLES3_Helpers
@@ -182,6 +206,18 @@ bool GLES3_Init(void* hwnd, bool lite) {
 
     // Initialize state
     memset(&g_State, 0, sizeof(g_State));
+    g_State.texture_factor[0] = 1.0f;
+    g_State.texture_factor[1] = 1.0f;
+    g_State.texture_factor[2] = 1.0f;
+    g_State.texture_factor[3] = 1.0f;
+    for (int i = 0; i < 8; i++) {
+        g_State.texture_stage_state[i][GLES3_TSS_ADDRESSU] = 1; // WRAP
+        g_State.texture_stage_state[i][GLES3_TSS_ADDRESSV] = 1; // WRAP
+        g_State.texture_stage_state[i][GLES3_TSS_MAGFILTER] = 2; // LINEAR
+        g_State.texture_stage_state[i][GLES3_TSS_MINFILTER] = 2; // LINEAR
+        g_State.texture_stage_state[i][GLES3_TSS_MIPFILTER] = 0; // NONE
+    }
+
 
     // Set identity matrices
     float identity[16] = {
@@ -199,6 +235,11 @@ bool GLES3_Init(void* hwnd, bool lite) {
     g_State.material.ambient[0] = g_State.material.ambient[1] =
     g_State.material.ambient[2] = 0.2f;
     g_State.material.ambient[3] = 1.0f;
+
+    // Default global ambient (gray/dark gray fallback matching shader)
+    g_State.global_ambient[0] = g_State.global_ambient[1] =
+    g_State.global_ambient[2] = 0.2f;
+    g_State.global_ambient[3] = 1.0f;
 
     // Create VAO (required in OpenGL ES 3.0 / WebGL 2.0)
     glGenVertexArrays(1, &g_State.vao);
@@ -365,6 +406,14 @@ void GLES3_Set_Render_State(unsigned int state, unsigned int value) {
             g_State.lighting_enabled = (value != 0);
             break;
 
+        case GLES3_RS_AMBIENT: {
+            g_State.global_ambient[0] = ((value >> 16) & 0xFF) / 255.0f;
+            g_State.global_ambient[1] = ((value >>  8) & 0xFF) / 255.0f;
+            g_State.global_ambient[2] = ((value      ) & 0xFF) / 255.0f;
+            g_State.global_ambient[3] = ((value >> 24) & 0xFF) / 255.0f;
+            break;
+        }
+
         case GLES3_RS_STENCILENABLE:
             if (value) glEnable(GL_STENCIL_TEST);
             else       glDisable(GL_STENCIL_TEST);
@@ -377,6 +426,24 @@ void GLES3_Set_Render_State(unsigned int state, unsigned int value) {
         case GLES3_RS_COLORVERTEX:
         case GLES3_RS_NORMALIZENORMALS:
             // Stored in g_State, applied via shader uniforms
+            break;
+
+        case GLES3_RS_TEXTUREFACTOR: {
+            // Unpack 0xAARRGGBB
+            g_State.texture_factor[0] = ((value >> 16) & 0xFF) / 255.0f; // Red
+            g_State.texture_factor[1] = ((value >>  8) & 0xFF) / 255.0f; // Green
+            g_State.texture_factor[2] = ((value      ) & 0xFF) / 255.0f; // Blue
+            g_State.texture_factor[3] = ((value >> 24) & 0xFF) / 255.0f; // Alpha
+            break;
+        }
+
+        case GLES3_RS_ZBIAS:
+            if (value > 0) {
+                glEnable(GL_POLYGON_OFFSET_FILL);
+                glPolygonOffset(-1.0f, -((float)value) * 2.0f);
+            } else {
+                glDisable(GL_POLYGON_OFFSET_FILL);
+            }
             break;
 
         default:
@@ -439,12 +506,66 @@ void GLES3_Set_Viewport(unsigned int x, unsigned int y,
 // DX8Wrapper API — Texture Binding
 // ============================================================================
 
+void GLES3_Apply_Texture_Stage_Parameters(unsigned int stage) {
+    GLuint tex = g_State.bound_textures[stage];
+    if (tex == 0) return;
+
+    glActiveTexture(GL_TEXTURE0 + stage);
+
+    // Apply wrap mode U (S)
+    unsigned int u = g_State.texture_stage_state[stage][GLES3_TSS_ADDRESSU];
+    if (u != 0) {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GLES3_Helpers::AddressMode_To_GL(u));
+    } else {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    }
+
+    // Apply wrap mode V (T)
+    unsigned int v = g_State.texture_stage_state[stage][GLES3_TSS_ADDRESSV];
+    if (v != 0) {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GLES3_Helpers::AddressMode_To_GL(v));
+    } else {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    }
+
+    // Apply filter modes
+    unsigned int mag = g_State.texture_stage_state[stage][GLES3_TSS_MAGFILTER];
+    if (mag != 0) {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GLES3_Helpers::FilterMode_To_GL(mag));
+    } else {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    }
+
+    unsigned int min = g_State.texture_stage_state[stage][GLES3_TSS_MINFILTER];
+    unsigned int mip = g_State.texture_stage_state[stage][GLES3_TSS_MIPFILTER];
+
+    // Determine if texture has mipmaps
+    bool has_mipmaps = GLES3_Texture_Has_Mipmaps(tex);
+
+    if (min == 0) min = 1; // Default D3D8: POINT (1)
+
+    GLenum gl_min_filter = GL_LINEAR;
+    if (!has_mipmaps || mip == 0) {
+        // No mipmapping
+        gl_min_filter = GLES3_Helpers::FilterMode_To_GL(min);
+    } else if (mip == 1) {
+        // D3DTEXF_POINT: Nearest mipmap
+        gl_min_filter = (min == 1) ? GL_NEAREST_MIPMAP_NEAREST : GL_LINEAR_MIPMAP_NEAREST;
+    } else {
+        // D3DTEXF_LINEAR: Linear mipmap interpolation
+        gl_min_filter = (min == 1) ? GL_NEAREST_MIPMAP_LINEAR : GL_LINEAR_MIPMAP_LINEAR;
+    }
+    
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_min_filter);
+}
+
 void GLES3_Set_Texture(unsigned int stage, GLuint gl_texture) {
     if (stage >= 8) return;
     g_State.bound_textures[stage] = gl_texture;
     glActiveTexture(GL_TEXTURE0 + stage);
     if (gl_texture) {
         glBindTexture(GL_TEXTURE_2D, gl_texture);
+        GLES3_Apply_Texture_Stage_Parameters(stage);
     } else {
         glBindTexture(GL_TEXTURE_2D, 0);
     }
@@ -455,30 +576,11 @@ void GLES3_Set_Texture_Stage_State(unsigned int stage, unsigned int state,
     if (stage >= 8 || state >= GLES3_TSS_MAX) return;
     g_State.texture_stage_state[stage][state] = value;
 
-    // Some texture stage states map to GL sampler parameters
-    glActiveTexture(GL_TEXTURE0 + stage);
-    switch (state) {
-        case GLES3_TSS_ADDRESSU:
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,
-                           GLES3_Helpers::AddressMode_To_GL(value));
-            break;
-        case GLES3_TSS_ADDRESSV:
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,
-                           GLES3_Helpers::AddressMode_To_GL(value));
-            break;
-        case GLES3_TSS_MAGFILTER:
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
-                           GLES3_Helpers::FilterMode_To_GL(value));
-            break;
-        case GLES3_TSS_MINFILTER:
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
-                           GLES3_Helpers::FilterMode_To_GL(value));
-            break;
-        default:
-            // Color/alpha ops handled in shader via uniforms
-            break;
+    if (g_State.bound_textures[stage] != 0) {
+        GLES3_Apply_Texture_Stage_Parameters(stage);
     }
 }
+
 
 
 // ============================================================================
@@ -773,6 +875,8 @@ GLuint GLES3_TextureConverter::Create_Texture(unsigned int width,
         GLenum src_fmt  = GL_RGBA;
         GLenum src_type = GL_UNSIGNED_BYTE;
         bool need_rb_swizzle = false;   // true: stored as BGRA → swizzle R↔B
+        bool need_a4r4g4b4_swizzle = false; // true: A4R4G4B4 → swizzle to match GL_RGBA4
+        bool need_a1r5g5b5_swizzle = false; // true: A1R5G5B5 → swizzle to match GL_RGBA5551
         bool force_alpha_one = false;   // true: X8R8G8B8 — force alpha channel=1
         bool is_luminance    = false;   // true: L8 — replicate R to G,B; A=1
         bool is_lum_alpha    = false;   // true: A8L8 — R/G → L/A swizzle
@@ -791,15 +895,13 @@ GLuint GLES3_TextureConverter::Create_Texture(unsigned int width,
             case 23: // D3DFMT_R5G6B5 — 16-bit, R[15:11] G[10:5] B[4:0]
                 src_fmt = GL_RGB; src_type = GL_UNSIGNED_SHORT_5_6_5;
                 break;
-            case 25: // D3DFMT_A1R5G5B5 — 16-bit ARGB, approximate with RGBA8
-                // BitmapHandlerClass converts these to A8R8G8B8 before reaching
-                // us in the normal Load path; keep fallback just in case.
-                src_fmt = GL_RGBA; src_type = GL_UNSIGNED_BYTE;
-                need_rb_swizzle = true;
+            case 25: // D3DFMT_A1R5G5B5 — 16-bit, A[15] R[14:10] G[9:5] B[4:0]
+                src_fmt = GL_RGBA; src_type = GL_UNSIGNED_SHORT_5_5_5_1;
+                need_a1r5g5b5_swizzle = true;
                 break;
-            case 26: // D3DFMT_A4R4G4B4 — similar approximation
-                src_fmt = GL_RGBA; src_type = GL_UNSIGNED_BYTE;
-                need_rb_swizzle = true;
+            case 26: // D3DFMT_A4R4G4B4
+                src_fmt = GL_RGBA; src_type = GL_UNSIGNED_SHORT_4_4_4_4;
+                need_a4r4g4b4_swizzle = true;
                 break;
             case 50: // D3DFMT_L8 — 1 byte luminance per pixel
                 src_fmt = GL_RED; src_type = GL_UNSIGNED_BYTE;
@@ -819,39 +921,103 @@ GLuint GLES3_TextureConverter::Create_Texture(unsigned int width,
                 break;
         }
 
+        const void* upload_data = data;
+        std::vector<unsigned char> temp_buffer;
+
+        if (data) {
+            if (need_rb_swizzle) {
+                unsigned int num_pixels = width * height;
+                temp_buffer.resize(num_pixels * 4);
+                const unsigned char* src = (const unsigned char*)data;
+                unsigned char* dst = temp_buffer.data();
+                for (unsigned int i = 0; i < num_pixels; i++) {
+                    dst[i*4 + 0] = src[i*4 + 2]; // B -> R
+                    dst[i*4 + 1] = src[i*4 + 1]; // G -> G
+                    dst[i*4 + 2] = src[i*4 + 0]; // R -> B
+                    dst[i*4 + 3] = force_alpha_one ? 255 : src[i*4 + 3];
+                }
+                upload_data = temp_buffer.data();
+                src_fmt = GL_RGBA;
+            } else if (need_a4r4g4b4_swizzle) {
+                unsigned int num_pixels = width * height;
+                temp_buffer.resize(num_pixels * sizeof(unsigned short));
+                const unsigned short* src = (const unsigned short*)data;
+                unsigned short* dst = (unsigned short*)temp_buffer.data();
+                for (unsigned int i = 0; i < num_pixels; i++) {
+                    unsigned short val = src[i];
+                    unsigned short a = (val >> 12) & 0xF;
+                    unsigned short r = (val >> 8) & 0xF;
+                    unsigned short g = (val >> 4) & 0xF;
+                    unsigned short b = val & 0xF;
+                    dst[i] = (r << 12) | (g << 8) | (b << 4) | a;
+                }
+                upload_data = temp_buffer.data();
+            } else if (need_a1r5g5b5_swizzle) {
+                unsigned int num_pixels = width * height;
+                temp_buffer.resize(num_pixels * sizeof(unsigned short));
+                const unsigned short* src = (const unsigned short*)data;
+                unsigned short* dst = (unsigned short*)temp_buffer.data();
+                for (unsigned int i = 0; i < num_pixels; i++) {
+                    unsigned short val = src[i];
+                    unsigned short a = (val >> 15) & 1;
+                    unsigned short r = (val >> 10) & 0x1F;
+                    unsigned short g = (val >> 5) & 0x1F;
+                    unsigned short b = val & 0x1F;
+                    dst[i] = (r << 11) | (g << 6) | (b << 1) | a;
+                }
+                upload_data = temp_buffer.data();
+            } else if (is_luminance) {
+                unsigned int num_pixels = width * height;
+                temp_buffer.resize(num_pixels * 4);
+                const unsigned char* src = (const unsigned char*)data;
+                unsigned char* dst = temp_buffer.data();
+                for (unsigned int i = 0; i < num_pixels; i++) {
+                    unsigned char l = src[i];
+                    dst[i*4 + 0] = l;
+                    dst[i*4 + 1] = l;
+                    dst[i*4 + 2] = l;
+                    dst[i*4 + 3] = 255;
+                }
+                upload_data = temp_buffer.data();
+                internal_fmt = GL_RGBA8;
+                src_fmt = GL_RGBA;
+            } else if (is_lum_alpha) {
+                unsigned int num_pixels = width * height;
+                temp_buffer.resize(num_pixels * 4);
+                const unsigned char* src = (const unsigned char*)data;
+                unsigned char* dst = temp_buffer.data();
+                for (unsigned int i = 0; i < num_pixels; i++) {
+                    unsigned char l = src[i*2 + 0];
+                    unsigned char a = src[i*2 + 1];
+                    dst[i*4 + 0] = l;
+                    dst[i*4 + 1] = l;
+                    dst[i*4 + 2] = l;
+                    dst[i*4 + 3] = a;
+                }
+                upload_data = temp_buffer.data();
+                internal_fmt = GL_RGBA8;
+                src_fmt = GL_RGBA;
+            } else if (is_alpha_only) {
+                unsigned int num_pixels = width * height;
+                temp_buffer.resize(num_pixels * 4);
+                const unsigned char* src = (const unsigned char*)data;
+                unsigned char* dst = temp_buffer.data();
+                for (unsigned int i = 0; i < num_pixels; i++) {
+                    unsigned char a = src[i];
+                    dst[i*4 + 0] = 0;
+                    dst[i*4 + 1] = 0;
+                    dst[i*4 + 2] = 0;
+                    dst[i*4 + 3] = a;
+                }
+                upload_data = temp_buffer.data();
+                internal_fmt = GL_RGBA8;
+                src_fmt = GL_RGBA;
+            }
+        }
+
         glTexImage2D(GL_TEXTURE_2D, 0, internal_fmt,
                      (GLsizei)width, (GLsizei)height, 0,
-                     src_fmt, src_type, data);
-
-        // Apply channel swizzle to fix BGRA → RGBA mismatch (GLES3 feature)
-        if (need_rb_swizzle) {
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_BLUE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_RED);
-        }
-        if (force_alpha_one) {
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_A, GL_ONE);
-        }
-        if (is_luminance) {
-            // L8 → replicate luminance to RGB, set alpha=1
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_RED);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_G, GL_RED);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_RED);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_A, GL_ONE);
-        }
-        if (is_lum_alpha) {
-            // A8L8: RG8 stores [L, A] → replicate L to RGB, use G for alpha
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_RED);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_G, GL_RED);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_RED);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_A, GL_GREEN);
-        }
-        if (is_alpha_only) {
-            // A8: store in R, expose as alpha only (RGB=0)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_ZERO);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_G, GL_ZERO);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_ZERO);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_A, GL_RED);
-        }
+                     src_fmt, src_type, upload_data);
 
         // Generate mipmaps from the uploaded base level (uncompressed only)
         if (mip_levels != 1) {
@@ -868,8 +1034,173 @@ GLuint GLES3_TextureConverter::Create_Texture(unsigned int width,
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
+    GLES3_Register_Texture(tex, mip_levels > 1);
     return tex;
 }
+
+
+// ---------------------------------------------------------------------------
+// Update_Texture — Update one mip level (level 0) of an existing D3D8 texture in GL.
+// ---------------------------------------------------------------------------
+void GLES3_TextureConverter::Update_Texture(GLuint gl_tex_id,
+                                            unsigned int width,
+                                            unsigned int height,
+                                            unsigned int dx8_format,
+                                            unsigned int mip_levels,
+                                            const void* data) {
+    if (!gl_tex_id) return;
+    glBindTexture(GL_TEXTURE_2D, gl_tex_id);
+
+    if (!data) return;
+
+    // --- Choose correct GL source format + type ---
+    GLenum src_fmt  = GL_RGBA;
+    GLenum src_type = GL_UNSIGNED_BYTE;
+    bool need_rb_swizzle = false;   // true: stored as BGRA → swizzle R↔B
+    bool need_a4r4g4b4_swizzle = false; // true: A4R4G4B4 → swizzle to match GL_RGBA4
+    bool need_a1r5g5b5_swizzle = false; // true: A1R5G5B5 → swizzle to match GL_RGBA5551
+    bool force_alpha_one = false;   // true: X8R8G8B8 — force alpha channel=1
+    bool is_luminance    = false;   // true: L8 — replicate R to G,B; A=1
+    bool is_lum_alpha    = false;   // true: A8L8 — R/G → L/A swizzle
+    bool is_alpha_only   = false;   // true: A8 — R=G=B=0, A=texel
+
+    switch (dx8_format) {
+        case 21: // D3DFMT_A8R8G8B8 — memory bytes: B G R A
+            src_fmt = GL_RGBA; src_type = GL_UNSIGNED_BYTE;
+            need_rb_swizzle = true;
+            break;
+        case 22: // D3DFMT_X8R8G8B8 — memory bytes: B G R X
+            src_fmt = GL_RGBA; src_type = GL_UNSIGNED_BYTE;
+            need_rb_swizzle = true;
+            force_alpha_one = true;
+            break;
+        case 23: // D3DFMT_R5G6B5 — 16-bit, R[15:11] G[10:5] B[4:0]
+            src_fmt = GL_RGB; src_type = GL_UNSIGNED_SHORT_5_6_5;
+            break;
+        case 25: // D3DFMT_A1R5G5B5 — 16-bit, A[15] R[14:10] G[9:5] B[4:0]
+            src_fmt = GL_RGBA; src_type = GL_UNSIGNED_SHORT_5_5_5_1;
+            need_a1r5g5b5_swizzle = true;
+            break;
+        case 26: // D3DFMT_A4R4G4B4
+            src_fmt = GL_RGBA; src_type = GL_UNSIGNED_SHORT_4_4_4_4;
+            need_a4r4g4b4_swizzle = true;
+            break;
+        case 50: // D3DFMT_L8 — 1 byte luminance per pixel
+            src_fmt = GL_RED; src_type = GL_UNSIGNED_BYTE;
+            is_luminance = true;
+            break;
+        case 51: // D3DFMT_A8L8 — 2 bytes: L, A
+            src_fmt = GL_RG; src_type = GL_UNSIGNED_BYTE;
+            is_lum_alpha = true;
+            break;
+        case 28: // D3DFMT_A8 — 1 byte alpha per pixel
+            src_fmt = GL_RED; src_type = GL_UNSIGNED_BYTE;
+            is_alpha_only = true;
+            break;
+        default:
+            src_fmt = GL_RGBA; src_type = GL_UNSIGNED_BYTE;
+            need_rb_swizzle = true; // assume BGRA unless otherwise known
+            break;
+    }
+
+    const void* upload_data = data;
+    std::vector<unsigned char> temp_buffer;
+
+    if (need_rb_swizzle) {
+        unsigned int num_pixels = width * height;
+        temp_buffer.resize(num_pixels * 4);
+        const unsigned char* src = (const unsigned char*)data;
+        unsigned char* dst = temp_buffer.data();
+        for (unsigned int i = 0; i < num_pixels; i++) {
+            dst[i*4 + 0] = src[i*4 + 2]; // B -> R
+            dst[i*4 + 1] = src[i*4 + 1]; // G -> G
+            dst[i*4 + 2] = src[i*4 + 0]; // R -> B
+            dst[i*4 + 3] = force_alpha_one ? 255 : src[i*4 + 3];
+        }
+        upload_data = temp_buffer.data();
+        src_fmt = GL_RGBA;
+    } else if (need_a4r4g4b4_swizzle) {
+        unsigned int num_pixels = width * height;
+        temp_buffer.resize(num_pixels * sizeof(unsigned short));
+        const unsigned short* src = (const unsigned short*)data;
+        unsigned short* dst = (unsigned short*)temp_buffer.data();
+        for (unsigned int i = 0; i < num_pixels; i++) {
+            unsigned short val = src[i];
+            unsigned short a = (val >> 12) & 0xF;
+            unsigned short r = (val >> 8) & 0xF;
+            unsigned short g = (val >> 4) & 0xF;
+            unsigned short b = val & 0xF;
+            dst[i] = (r << 12) | (g << 8) | (b << 4) | a;
+        }
+        upload_data = temp_buffer.data();
+    } else if (need_a1r5g5b5_swizzle) {
+        unsigned int num_pixels = width * height;
+        temp_buffer.resize(num_pixels * sizeof(unsigned short));
+        const unsigned short* src = (const unsigned short*)data;
+        unsigned short* dst = (unsigned short*)temp_buffer.data();
+        for (unsigned int i = 0; i < num_pixels; i++) {
+            unsigned short val = src[i];
+            unsigned short a = (val >> 15) & 1;
+            unsigned short r = (val >> 10) & 0x1F;
+            unsigned short g = (val >> 5) & 0x1F;
+            unsigned short b = val & 0x1F;
+            dst[i] = (r << 11) | (g << 6) | (b << 1) | a;
+        }
+        upload_data = temp_buffer.data();
+    } else if (is_luminance) {
+        unsigned int num_pixels = width * height;
+        temp_buffer.resize(num_pixels * 4);
+        const unsigned char* src = (const unsigned char*)data;
+        unsigned char* dst = temp_buffer.data();
+        for (unsigned int i = 0; i < num_pixels; i++) {
+            unsigned char l = src[i];
+            dst[i*4 + 0] = l;
+            dst[i*4 + 1] = l;
+            dst[i*4 + 2] = l;
+            dst[i*4 + 3] = 255;
+        }
+        upload_data = temp_buffer.data();
+        src_fmt = GL_RGBA;
+    } else if (is_lum_alpha) {
+        unsigned int num_pixels = width * height;
+        temp_buffer.resize(num_pixels * 4);
+        const unsigned char* src = (const unsigned char*)data;
+        unsigned char* dst = temp_buffer.data();
+        for (unsigned int i = 0; i < num_pixels; i++) {
+            unsigned char l = src[i*2 + 0];
+            unsigned char a = src[i*2 + 1];
+            dst[i*4 + 0] = l;
+            dst[i*4 + 1] = l;
+            dst[i*4 + 2] = l;
+            dst[i*4 + 3] = a;
+        }
+        upload_data = temp_buffer.data();
+        src_fmt = GL_RGBA;
+    } else if (is_alpha_only) {
+        unsigned int num_pixels = width * height;
+        temp_buffer.resize(num_pixels * 4);
+        const unsigned char* src = (const unsigned char*)data;
+        unsigned char* dst = temp_buffer.data();
+        for (unsigned int i = 0; i < num_pixels; i++) {
+            unsigned char a = src[i];
+            dst[i*4 + 0] = 0;
+            dst[i*4 + 1] = 0;
+            dst[i*4 + 2] = 0;
+            dst[i*4 + 3] = a;
+        }
+        upload_data = temp_buffer.data();
+        src_fmt = GL_RGBA;
+    }
+
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
+                    (GLsizei)width, (GLsizei)height,
+                    src_fmt, src_type, upload_data);
+
+    if (mip_levels > 1) {
+        glGenerateMipmap(GL_TEXTURE_2D);
+    }
+}
+
 
 
 // ============================================================================
@@ -878,6 +1209,7 @@ GLuint GLES3_TextureConverter::Create_Texture(unsigned int width,
 
 bool GLES3_ShaderManager::Init() {
     memset(cached_programs, 0, sizeof(cached_programs));
+    memset(cached_locations, -1, sizeof(cached_locations));
     // The fixed-function emulation shaders are compiled on first use
     // via Get_Program(). This avoids compiling unused variants.
     return true;
@@ -953,6 +1285,62 @@ unsigned int GLES3_ShaderManager::Hash_Pipeline_Config(
 extern "C" const char* GLES3_Get_Vertex_Shader_Source(unsigned int config_hash);
 extern "C" const char* GLES3_Get_Fragment_Shader_Source(unsigned int config_hash);
 
+void GLES3_ShaderManager::Populate_Locations(GLuint program, unsigned int hash) {
+    GLES3_ProgramUniformLocations& locs = cached_locations[hash];
+    locs.u_World = glGetUniformLocation(program, "u_World");
+    locs.u_View = glGetUniformLocation(program, "u_View");
+    locs.u_Projection = glGetUniformLocation(program, "u_Projection");
+    locs.u_MatDiffuse = glGetUniformLocation(program, "u_MatDiffuse");
+    locs.u_MatAmbient = glGetUniformLocation(program, "u_MatAmbient");
+    locs.u_MatSpecular = glGetUniformLocation(program, "u_MatSpecular");
+    locs.u_MatEmissive = glGetUniformLocation(program, "u_MatEmissive");
+    locs.u_MatPower = glGetUniformLocation(program, "u_MatPower");
+    locs.u_LightingEnabled = glGetUniformLocation(program, "u_LightingEnabled");
+    locs.u_GlobalAmbient = glGetUniformLocation(program, "u_GlobalAmbient");
+
+    for (int i = 0; i < 4; i++) {
+        char name[64];
+        snprintf(name, sizeof(name), "u_Lights[%d].diffuse", i);
+        locs.u_Lights[i].diffuse = glGetUniformLocation(program, name);
+        snprintf(name, sizeof(name), "u_Lights[%d].position", i);
+        locs.u_Lights[i].position = glGetUniformLocation(program, name);
+        snprintf(name, sizeof(name), "u_Lights[%d].direction", i);
+        locs.u_Lights[i].direction = glGetUniformLocation(program, name);
+        snprintf(name, sizeof(name), "u_Lights[%d].enabled", i);
+        locs.u_Lights[i].enabled = glGetUniformLocation(program, name);
+        snprintf(name, sizeof(name), "u_Lights[%d].type", i);
+        locs.u_Lights[i].type = glGetUniformLocation(program, name);
+        snprintf(name, sizeof(name), "u_Lights[%d].attenuation0", i);
+        locs.u_Lights[i].attenuation0 = glGetUniformLocation(program, name);
+        snprintf(name, sizeof(name), "u_Lights[%d].attenuation1", i);
+        locs.u_Lights[i].attenuation1 = glGetUniformLocation(program, name);
+        snprintf(name, sizeof(name), "u_Lights[%d].attenuation2", i);
+        locs.u_Lights[i].attenuation2 = glGetUniformLocation(program, name);
+    }
+
+    locs.u_FogEnabled = glGetUniformLocation(program, "u_FogEnabled");
+    locs.u_FogColor = glGetUniformLocation(program, "u_FogColor");
+    locs.u_FogStart = glGetUniformLocation(program, "u_FogStart");
+    locs.u_FogEnd = glGetUniformLocation(program, "u_FogEnd");
+    locs.u_AlphaTestEnabled = glGetUniformLocation(program, "u_AlphaTestEnabled");
+    locs.u_AlphaRef = glGetUniformLocation(program, "u_AlphaRef");
+    locs.u_AlphaFunc = glGetUniformLocation(program, "u_AlphaFunc");
+
+    for (int i = 0; i < 4; i++) {
+        char name[32];
+        snprintf(name, sizeof(name), "u_Texture%d", i);
+        locs.u_Texture[i] = glGetUniformLocation(program, name);
+    }
+
+    locs.u_TextureStageCount = glGetUniformLocation(program, "u_TextureStageCount");
+    locs.u_Stage0_ColorOp = glGetUniformLocation(program, "u_Stage0_ColorOp");
+    locs.u_Stage1_ColorOp = glGetUniformLocation(program, "u_Stage1_ColorOp");
+    locs.u_Stage0_AlphaOp = glGetUniformLocation(program, "u_Stage0_AlphaOp");
+    locs.u_Stage1_AlphaOp = glGetUniformLocation(program, "u_Stage1_AlphaOp");
+    locs.u_ColorVertex = glGetUniformLocation(program, "u_ColorVertex");
+    locs.u_TextureFactor = glGetUniformLocation(program, "u_TextureFactor");
+}
+
 GLuint GLES3_ShaderManager::Get_Program(const GLES3_PipelineState& state) {
     unsigned int hash = Hash_Pipeline_Config(state);
 
@@ -969,6 +1357,9 @@ GLuint GLES3_ShaderManager::Get_Program(const GLES3_PipelineState& state) {
 
     if (vs && fs) {
         cached_programs[hash] = Link_Program(vs, fs);
+        if (cached_programs[hash] != 0) {
+            Populate_Locations(cached_programs[hash], hash);
+        }
     }
 
     if (vs) glDeleteShader(vs);
@@ -979,82 +1370,91 @@ GLuint GLES3_ShaderManager::Get_Program(const GLES3_PipelineState& state) {
 
 void GLES3_ShaderManager::Apply_Uniforms(GLuint program,
                                           const GLES3_PipelineState& state) {
+    unsigned int hash = Hash_Pipeline_Config(state);
+    const GLES3_ProgramUniformLocations& locs = cached_locations[hash];
+
     // Upload matrices (transposed for GL column-major order)
     float gl_matrix[16];
 
     GLES3_Helpers::Matrix4x4_To_GL(state.world_matrix, gl_matrix);
-    glUniformMatrix4fv(glGetUniformLocation(program, "u_World"),
-                       1, GL_FALSE, gl_matrix);
+    if (locs.u_World != -1) {
+        glUniformMatrix4fv(locs.u_World, 1, GL_FALSE, gl_matrix);
+    }
 
     GLES3_Helpers::Matrix4x4_To_GL(state.view_matrix, gl_matrix);
-    glUniformMatrix4fv(glGetUniformLocation(program, "u_View"),
-                       1, GL_FALSE, gl_matrix);
+    if (locs.u_View != -1) {
+        glUniformMatrix4fv(locs.u_View, 1, GL_FALSE, gl_matrix);
+    }
 
     GLES3_Helpers::Matrix4x4_To_GL(state.projection_matrix, gl_matrix);
-    glUniformMatrix4fv(glGetUniformLocation(program, "u_Projection"),
-                       1, GL_FALSE, gl_matrix);
+    if (locs.u_Projection != -1) {
+        glUniformMatrix4fv(locs.u_Projection, 1, GL_FALSE, gl_matrix);
+    }
 
     // Material
-    glUniform4fv(glGetUniformLocation(program, "u_MatDiffuse"),
-                 1, state.material.diffuse);
-    glUniform4fv(glGetUniformLocation(program, "u_MatAmbient"),
-                 1, state.material.ambient);
-    glUniform4fv(glGetUniformLocation(program, "u_MatSpecular"),
-                 1, state.material.specular);
-    glUniform4fv(glGetUniformLocation(program, "u_MatEmissive"),
-                 1, state.material.emissive);
-    glUniform1f(glGetUniformLocation(program, "u_MatPower"),
-                state.material.power);
+    if (locs.u_MatDiffuse != -1) glUniform4fv(locs.u_MatDiffuse, 1, state.material.diffuse);
+    if (locs.u_MatAmbient != -1) glUniform4fv(locs.u_MatAmbient, 1, state.material.ambient);
+    if (locs.u_MatSpecular != -1) glUniform4fv(locs.u_MatSpecular, 1, state.material.specular);
+    if (locs.u_MatEmissive != -1) glUniform4fv(locs.u_MatEmissive, 1, state.material.emissive);
+    if (locs.u_MatPower != -1) glUniform1f(locs.u_MatPower, state.material.power);
 
     // Lighting
-    glUniform1i(glGetUniformLocation(program, "u_LightingEnabled"),
-                state.lighting_enabled ? 1 : 0);
+    if (locs.u_LightingEnabled != -1) {
+        glUniform1i(locs.u_LightingEnabled, state.lighting_enabled ? 1 : 0);
+    }
+    if (locs.u_GlobalAmbient != -1) {
+        glUniform4fv(locs.u_GlobalAmbient, 1, state.global_ambient);
+    }
     for (int i = 0; i < 4; i++) {
-        char name[64];
         if (state.light_enabled[i]) {
-            snprintf(name, sizeof(name), "u_Lights[%d].diffuse", i);
-            glUniform4fv(glGetUniformLocation(program, name),
-                        1, state.lights[i].diffuse);
-            snprintf(name, sizeof(name), "u_Lights[%d].position", i);
-            glUniform3fv(glGetUniformLocation(program, name),
-                        1, state.lights[i].position);
-            snprintf(name, sizeof(name), "u_Lights[%d].direction", i);
-            glUniform3fv(glGetUniformLocation(program, name),
-                        1, state.lights[i].direction);
-            snprintf(name, sizeof(name), "u_Lights[%d].enabled", i);
-            glUniform1i(glGetUniformLocation(program, name), 1);
+            if (locs.u_Lights[i].diffuse != -1) {
+                glUniform4fv(locs.u_Lights[i].diffuse, 1, state.lights[i].diffuse);
+            }
+            if (locs.u_Lights[i].position != -1) {
+                glUniform3fv(locs.u_Lights[i].position, 1, state.lights[i].position);
+            }
+            if (locs.u_Lights[i].direction != -1) {
+                glUniform3fv(locs.u_Lights[i].direction, 1, state.lights[i].direction);
+            }
+            if (locs.u_Lights[i].enabled != -1) {
+                glUniform1i(locs.u_Lights[i].enabled, 1);
+            }
         } else {
             // Ensure disabled lights are not used by the vertex shader.
             // Without this, a light that was previously enabled keeps
             // contributing after LightEnable(i, FALSE) is called.
-            snprintf(name, sizeof(name), "u_Lights[%d].enabled", i);
-            glUniform1i(glGetUniformLocation(program, name), 0);
+            if (locs.u_Lights[i].enabled != -1) {
+                glUniform1i(locs.u_Lights[i].enabled, 0);
+            }
         }
     }
 
     // Fog
-    glUniform1i(glGetUniformLocation(program, "u_FogEnabled"),
-                state.fog_enabled ? 1 : 0);
+    if (locs.u_FogEnabled != -1) {
+        glUniform1i(locs.u_FogEnabled, state.fog_enabled ? 1 : 0);
+    }
     if (state.fog_enabled) {
-        glUniform3fv(glGetUniformLocation(program, "u_FogColor"),
-                    1, state.fog_color);
-        glUniform1f(glGetUniformLocation(program, "u_FogStart"), state.fog_start);
-        glUniform1f(glGetUniformLocation(program, "u_FogEnd"), state.fog_end);
+        if (locs.u_FogColor != -1) glUniform3fv(locs.u_FogColor, 1, state.fog_color);
+        if (locs.u_FogStart != -1) glUniform1f(locs.u_FogStart, state.fog_start);
+        if (locs.u_FogEnd != -1) glUniform1f(locs.u_FogEnd, state.fog_end);
     }
 
     // Alpha test (emulated in shader)
-    glUniform1i(glGetUniformLocation(program, "u_AlphaTestEnabled"),
-                state.alpha_test_enabled ? 1 : 0);
-    glUniform1f(glGetUniformLocation(program, "u_AlphaRef"),
-                state.alpha_ref / 255.0f);
-    glUniform1i(glGetUniformLocation(program, "u_AlphaFunc"),
-                state.alpha_func);
+    if (locs.u_AlphaTestEnabled != -1) {
+        glUniform1i(locs.u_AlphaTestEnabled, state.alpha_test_enabled ? 1 : 0);
+    }
+    if (locs.u_AlphaRef != -1) {
+        glUniform1f(locs.u_AlphaRef, state.alpha_ref / 255.0f);
+    }
+    if (locs.u_AlphaFunc != -1) {
+        glUniform1i(locs.u_AlphaFunc, state.alpha_func);
+    }
 
     // Texture samplers
     for (int i = 0; i < 4; i++) {
-        char name[32];
-        snprintf(name, sizeof(name), "u_Texture%d", i);
-        glUniform1i(glGetUniformLocation(program, name), i);
+        if (locs.u_Texture[i] != -1) {
+            glUniform1i(locs.u_Texture[i], i);
+        }
     }
 
     // Texture stage count — highest active stage index + 1.
@@ -1063,13 +1463,19 @@ void GLES3_ShaderManager::Apply_Uniforms(GLuint program,
     {
         int tex_stage_count = 0;
         for (int i = 3; i >= 0; i--) {
-            if (state.bound_textures[i] != 0) {
+            bool has_texture = (state.bound_textures[i] != 0);
+            int cop = (int)state.texture_stage_state[i][GLES3_TSS_COLOROP];
+            int aop = (int)state.texture_stage_state[i][GLES3_TSS_ALPHAOP];
+            // D3DTOP_DISABLE is 1, unset/default is 0. Active ops are anything else.
+            bool has_op = (cop > 1) || (aop > 1);
+            if (has_texture || has_op) {
                 tex_stage_count = i + 1;
                 break;
             }
         }
-        glUniform1i(glGetUniformLocation(program, "u_TextureStageCount"),
-                    tex_stage_count);
+        if (locs.u_TextureStageCount != -1) {
+            glUniform1i(locs.u_TextureStageCount, tex_stage_count);
+        }
     }
 
     // Texture stage color/alpha ops (D3DTEXTUREOP per-stage)
@@ -1083,35 +1489,39 @@ void GLES3_ShaderManager::Apply_Uniforms(GLuint program,
         // If stage 0 op is 0 (unset), default to MODULATE (4) so texture * diffuse
         if (s0_cop == 0 && state.bound_textures[0] != 0) s0_cop = 4;
         if (s0_aop == 0 && state.bound_textures[0] != 0) s0_aop = 2;
-        glUniform1i(glGetUniformLocation(program, "u_Stage0_ColorOp"), s0_cop);
-        glUniform1i(glGetUniformLocation(program, "u_Stage1_ColorOp"), s1_cop);
-        glUniform1i(glGetUniformLocation(program, "u_Stage0_AlphaOp"), s0_aop);
-        glUniform1i(glGetUniformLocation(program, "u_Stage1_AlphaOp"), s1_aop);
+        if (locs.u_Stage0_ColorOp != -1) glUniform1i(locs.u_Stage0_ColorOp, s0_cop);
+        if (locs.u_Stage1_ColorOp != -1) glUniform1i(locs.u_Stage1_ColorOp, s1_cop);
+        if (locs.u_Stage0_AlphaOp != -1) glUniform1i(locs.u_Stage0_AlphaOp, s0_aop);
+        if (locs.u_Stage1_AlphaOp != -1) glUniform1i(locs.u_Stage1_AlphaOp, s1_aop);
     }
 
     // Color vertex mode (D3DRS_COLORVERTEX): when true, vertex color overrides
     // the material diffuse color during lighting calculations.
-    glUniform1i(glGetUniformLocation(program, "u_ColorVertex"),
-                state.render_states[GLES3_RS_COLORVERTEX] ? 1 : 0);
+    if (locs.u_ColorVertex != -1) {
+        glUniform1i(locs.u_ColorVertex, state.render_states[GLES3_RS_COLORVERTEX] ? 1 : 0);
+    }
 
     // Light type and attenuation per light (needed for correct per-type dispatch
     // in the vertex shader — type was uploaded but attenuation was missing).
     for (int i = 0; i < 4; i++) {
         if (state.light_enabled[i]) {
-            char name[64];
-            snprintf(name, sizeof(name), "u_Lights[%d].type", i);
-            glUniform1i(glGetUniformLocation(program, name),
-                        (int)state.lights[i].type);
-            snprintf(name, sizeof(name), "u_Lights[%d].attenuation0", i);
-            glUniform1f(glGetUniformLocation(program, name),
-                        state.lights[i].attenuation0);
-            snprintf(name, sizeof(name), "u_Lights[%d].attenuation1", i);
-            glUniform1f(glGetUniformLocation(program, name),
-                        state.lights[i].attenuation1);
-            snprintf(name, sizeof(name), "u_Lights[%d].attenuation2", i);
-            glUniform1f(glGetUniformLocation(program, name),
-                        state.lights[i].attenuation2);
+            if (locs.u_Lights[i].type != -1) {
+                glUniform1i(locs.u_Lights[i].type, (int)state.lights[i].type);
+            }
+            if (locs.u_Lights[i].attenuation0 != -1) {
+                glUniform1f(locs.u_Lights[i].attenuation0, state.lights[i].attenuation0);
+            }
+            if (locs.u_Lights[i].attenuation1 != -1) {
+                glUniform1f(locs.u_Lights[i].attenuation1, state.lights[i].attenuation1);
+            }
+            if (locs.u_Lights[i].attenuation2 != -1) {
+                glUniform1f(locs.u_Lights[i].attenuation2, state.lights[i].attenuation2);
+            }
         }
+    }
+
+    if (locs.u_TextureFactor != -1) {
+        glUniform4fv(locs.u_TextureFactor, 1, state.texture_factor);
     }
 }
 

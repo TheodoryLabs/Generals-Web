@@ -97,7 +97,7 @@ add_definitions(-DDISABLE_MEMORYPOOL_BOUNDINGWALL=1)
 # allocators with standard heap allocations. Slightly slower but eliminates all
 # pool-related corruption (POOL-DOUBLE-FREE, MPSB dlink, bounding wall).
 # Requires a full rebuild: delete build-web/CMakeCache.txt then ninja.
-set(RTS_GAMEMEMORY_ENABLE OFF CACHE BOOL "Disable GameMemory pool on web" FORCE)
+set(RTS_GAMEMEMORY_ENABLE ON CACHE BOOL "Disable GameMemory pool on web" FORCE)
 
 # Force SAGE_USE_OPENAL so WWAudio uses MilesStub.h instead of mss.h
 # Emscripten provides OpenAL→WebAudio via -sUSE_OPENAL=1

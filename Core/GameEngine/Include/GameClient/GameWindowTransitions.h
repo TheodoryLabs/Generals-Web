@@ -672,6 +672,8 @@ public:
 	void reverse( AsciiString groupName );// reverse the animations for the current group.
 	void remove( AsciiString groupName, Bool skipPending = FALSE );// remove the animation from the current or pending groups.
 	TransitionGroup *getNewGroup( AsciiString name );
+	TransitionGroup *getCurrentGroup() { return m_currentGroup; }
+	AsciiString getCurrentGroupName() { return m_currentGroup ? m_currentGroup->getName() : ""; }
 private:
 	TransitionGroup *findGroup( AsciiString groupName );
 	typedef std::list<TransitionGroup *> TransitionGroupList;

@@ -47,7 +47,7 @@ CachedFileInputStream::~CachedFileInputStream()
 	m_buffer=nullptr;
 }
 
-Bool CachedFileInputStream::open(AsciiString path)
+Bool CachedFileInputStream::open(const AsciiString& path)
 {
 	File *file=TheFileSystem->openFile(path.str(), File::READ | File::BINARY);
 	m_size = 0;
@@ -357,7 +357,11 @@ void DataChunkOutput::writeUnicodeString( UnicodeString theString )
 {
 	UnsignedShort len = theString.getLength();
 	::fwrite( (const char *)&len, sizeof(UnsignedShort) , 1, m_tmp_file );
-	::fwrite( theString.str(), len*sizeof(WideChar) , 1, m_tmp_file );
+	const WideChar *str = theString.str();
+	for (int i = 0; i < len; i++) {
+		unsigned short char16 = (unsigned short)str[i];
+		::fwrite( &char16, sizeof(unsigned short), 1, m_tmp_file );
+	}
 }
 
 void DataChunkOutput::writeNameKey( const NameKeyType key )
@@ -554,6 +558,8 @@ void DataChunkTableOfContents::read( ChunkInputStream &s)
 		// read id
 		s.read( (char *)&m->id, sizeof(UnsignedInt) );
 
+		printf("DEBUG-TOC: Mapping[%d]: name='%s', id=%u\n", i, m->name.str(), (unsigned int)m->id);
+
 		// prepend to list
 		m->next = this->m_list;
 		this->m_list = m;
@@ -565,6 +571,7 @@ void DataChunkTableOfContents::read( ChunkInputStream &s)
 			maxID = m->id;
 	}
 	m_headerOpened = count > 0 && !s.eof();
+	printf("DEBUG-TOC: Finished reading TOC. m_headerOpened=%d count=%d\n", (int)m_headerOpened, count);
 
 	// adjust next ID so no ID's are reused
 	this->m_nextID = max( this->m_nextID, maxID+1 );
@@ -717,6 +724,7 @@ AsciiString DataChunkInput::openDataChunk(DataChunkVersionType *ver )
 	c->id = 0;
 	c->version = 0;
 	c->dataSize = 0;
+	UnsignedInt startOffset = m_file->tell();
 	//DEBUG_LOG(("Opening data chunk at offset %d (%x)", m_file->tell(), m_file->tell()));
 	// read the chunk ID
 	m_file->read( (char *)&c->id, sizeof(UnsignedInt) );
@@ -735,6 +743,10 @@ AsciiString DataChunkInput::openDataChunk(DataChunkVersionType *ver )
 	c->chunkStart = m_file->tell();
 
 	*ver = c->version;
+
+	printf("DEBUG-CHUNK: openDataChunk: offset=%u, id=%u, version=%u, dataSize=%d, parentDataLeft=%d\n",
+		(unsigned int)startOffset, (unsigned int)c->id, (unsigned int)c->version, (int)c->dataSize,
+		m_chunkStack ? (int)m_chunkStack->dataLeft : -1);
 
 	c->next = m_chunkStack;
 	m_chunkStack = c;
@@ -904,35 +916,61 @@ Dict DataChunkInput::readDict()
 	decrementDataLeft( sizeof(UnsignedShort) );
 	DEBUG_ASSERTCRASH(m_chunkStack->dataLeft>=len, ("Read past end of chunk."));
 
+	printf("DEBUG-DICT: readDict: len=%d\n", (int)len);
+
 	Dict d(len);
 
 	for (int i = 0; i < len; i++)
 	{
 		Int keyAndType = readInt();
 		Dict::DataType t = (Dict::DataType)(keyAndType & 0xff);
-		keyAndType >>= 8;
+		Int tocId = keyAndType >> 8;
 
-		AsciiString kname = m_contents.getName(keyAndType);
+		printf("DEBUG-DICT:   [%d/%d] raw=0x%08x, type=%d, tocId=%d\n", i, (int)len, (unsigned int)keyAndType, (int)t, (int)tocId);
+
+		AsciiString kname = m_contents.getName(tocId);
 		NameKeyType k = TheNameKeyGenerator->nameToKey(kname);
 
 		switch(t)
 		{
 			case Dict::DICT_BOOL:
-				d.setBool(k, readByte() ? true : false);
+				{
+					Byte b = readByte();
+					d.setBool(k, b ? true : false);
+					printf("DEBUG-DICT:     BOOL: name='%s' val=%d\n", kname.str(), (int)b);
+				}
 				break;
 			case Dict::DICT_INT:
-				d.setInt(k, readInt());
+				{
+					Int val = readInt();
+					d.setInt(k, val);
+					printf("DEBUG-DICT:     INT: name='%s' val=%d\n", kname.str(), val);
+				}
 				break;
 			case Dict::DICT_REAL:
-				d.setReal(k, readReal());
+				{
+					Real val = readReal();
+					d.setReal(k, val);
+					printf("DEBUG-DICT:     REAL: name='%s' val=%f\n", kname.str(), (double)val);
+				}
 				break;
 			case Dict::DICT_ASCIISTRING:
-				d.setAsciiString(k, readAsciiString());
+				{
+					AsciiString val = readAsciiString();
+					d.setAsciiString(k, val);
+					printf("DEBUG-DICT:     ASCII: name='%s' val='%s'\n", kname.str(), val.str());
+				}
 				break;
 			case Dict::DICT_UNICODESTRING:
-				d.setUnicodeString(k, readUnicodeString());
+				{
+					UnicodeString val = readUnicodeString();
+					d.setUnicodeString(k, val);
+					// don't print unicode to avoid console issues, just length or status
+					printf("DEBUG-DICT:     UNICODE: name='%s' len=%d\n", kname.str(), val.getLength());
+				}
 				break;
 			default:
+				printf("DEBUG-DICT:     UNKNOWN TYPE: %d\n", (int)t);
 				throw ERROR_CORRUPT_FILE_FORMAT;
 				break;
 		}
@@ -966,14 +1004,19 @@ UnicodeString DataChunkInput::readUnicodeString()
 	DEBUG_ASSERTCRASH(m_chunkStack->dataLeft>=sizeof(UnsignedShort), ("Read past end of chunk."));
 	m_file->read( &len, sizeof(UnsignedShort) );
 	decrementDataLeft( sizeof(UnsignedShort) );
-	DEBUG_ASSERTCRASH(m_chunkStack->dataLeft>=len, ("Read past end of chunk."));
+	DEBUG_ASSERTCRASH(m_chunkStack->dataLeft>=len * sizeof(unsigned short), ("Read past end of chunk."));
 	UnicodeString theString;
 	if (len>0) {
+		unsigned short *tempBuf = new unsigned short[len];
+		m_file->read( (char*)tempBuf, len*sizeof(unsigned short) );
+		decrementDataLeft( len*sizeof(unsigned short) );
 		WideChar *str = theString.getBufferForRead(len);
-		m_file->read( (char*)str, len*sizeof(WideChar) );
-		decrementDataLeft( len*sizeof(WideChar) );
+		for (int i = 0; i < len; i++) {
+			str[i] = (WideChar)tempBuf[i];
+		}
 		// add null delimiter to string.  Note that getBufferForRead allocates space for terminating null.
 		str[len] = '\000';
+		delete[] tempBuf;
 	}
 
 	return theString;

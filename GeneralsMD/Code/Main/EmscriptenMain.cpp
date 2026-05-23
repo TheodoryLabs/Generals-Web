@@ -42,6 +42,13 @@
 // SDL input translation
 #include "EmscriptenInput.h"
 
+// Game Client display/view
+#include "GameClient/Display.h"
+#include "GameClient/View.h"
+
+// WWAudio delayed-release
+#include "Threads.h"
+
 // Win32GameEngine
 #include "Win32Device/Common/Win32GameEngine.h"
 
@@ -111,9 +118,9 @@ extern "C" int gx_d3d_setindices_null;
 static inline void GX_ReportProgress(const char *stage, int current, int total,
                                      const char *label) {
   EM_ASM({
-    if (typeof window !== 'undefined' && window.GeneralsX &&
-        typeof window.GeneralsX.setProgress === 'function') {
-      window.GeneralsX.setProgress(
+    if (typeof window !== 'undefined' && window['GeneralsX'] &&
+        typeof window['GeneralsX']['setProgress'] === 'function') {
+      window['GeneralsX']['setProgress'](
           UTF8ToString($0), $1, $2,
           $3 ? UTF8ToString($3) : '');
     }
@@ -258,25 +265,37 @@ void GX_FlushIdbfs_Tab(const char *reason) {
 // re-layouts to the new backing size.
 // ============================================================================
 extern "C" EMSCRIPTEN_KEEPALIVE
-void GX_OnCanvasResize(int w, int h) {
-  if (w <= 0 || h <= 0) return;
-  if (TheSDL3Window) {
-    SDL_SetWindowSize(TheSDL3Window, w, h);
-    // SDL_WINDOWEVENT_RESIZED fires from inside SDL, drained by
-    // EmscriptenInput_PumpEvents on the next frame; the existing handler in
-    // EmscriptenInput.cpp updates g_canvasW/H for pointer-lock clamping.
+void GX_OnCanvasResize(int physW, int physH, int logW, int logH) {
+  if (physW <= 0 || physH <= 0) return;
+  if (logW <= 0 || logH <= 0) {
+    logW = EM_ASM_INT({
+      var canvas = document.getElementById('canvas');
+      return canvas ? canvas.clientWidth : 0;
+    });
+    logH = EM_ASM_INT({
+      var canvas = document.getElementById('canvas');
+      return canvas ? canvas.clientHeight : 0;
+    });
+    if (logW <= 0) logW = physW;
+    if (logH <= 0) logH = physH;
   }
-  // Always keep the canvas-element size and the GL drawing buffer in sync,
-  // even when SDL hasn't created a window yet (early in boot). Without this
-  // the WebGL context renders at whatever the initial canvas attribute size
-  // was and the browser stretches it.
-  emscripten_set_canvas_element_size("#canvas", w, h);
-  // Touch input centroid math reads g_canvasW/H to convert SDL's normalized
-  // (0..1) finger coords back to pixel coords. SDL_WINDOWEVENT_RESIZED also
-  // updates these, but on early-boot resizes (before SDL_CreateWindow) the
-  // SDL event won't fire; refresh directly here.
-  EmscriptenInput_UpdateCanvasSize(w, h);
-  fprintf(stderr, "INFO: GX_OnCanvasResize → %dx%d\n", w, h);
+  if (TheSDL3Window) {
+    SDL_SetWindowSize(TheSDL3Window, logW, logH);
+  }
+  emscripten_set_canvas_element_size("#canvas", physW, physH);
+  EmscriptenInput_UpdateCanvasSize(logW, logH);
+
+  if (TheDisplay != nullptr) {
+    TheDisplay->setWidth(logW);
+    TheDisplay->setHeight(logH);
+  }
+  if (TheTacticalView != nullptr) {
+    TheTacticalView->setWidth(logW);
+    TheTacticalView->setHeight(logH);
+    TheTacticalView->setDefaultView(0.0f, 0.0f, 1.0f);
+  }
+
+  fprintf(stderr, "INFO: GX_OnCanvasResize → physical: %dx%d, logical: %dx%d\n", physW, physH, logW, logH);
 }
 
 // ============================================================================
@@ -300,9 +319,10 @@ void GX_OnCanvasResize(int w, int h) {
 // ============================================================================
 namespace {
 const char *const kDeferredAudioArchives[] = {
-    "AudioZH.big",
-    "MusicZH.big",
+    "Speech.big",
+    "SpeechEnglish.big",
     "SpeechZH.big",
+    "SpeechEnglishZH.big",
     nullptr,
 };
 int g_deferredMountState = 0;
@@ -326,9 +346,9 @@ static void DeferredAudio_Step() {
         g_deferredMountState = 2;
         g_deferredMountIndex = 0;
         EM_ASM({
-          if (window.GeneralsX &&
-              typeof window.GeneralsX.setSecondaryProgress === 'function') {
-            window.GeneralsX.setSecondaryProgress(
+          if (window['GeneralsX'] &&
+              typeof window['GeneralsX']['setSecondaryProgress'] === 'function') {
+            window['GeneralsX']['setSecondaryProgress'](
                 'Loading audio assets', 0, $0, '');
           }
         }, DeferredAudio_Total());
@@ -343,13 +363,13 @@ static void DeferredAudio_Step() {
         BigVFS::Mount_To_Emscripten_FS();
         g_deferredMountState = 3;
         EM_ASM({
-          if (window.GeneralsX &&
-              typeof window.GeneralsX.setSecondaryProgress === 'function') {
-            window.GeneralsX.setSecondaryProgress('Audio ready', 1, 1, '');
+          if (window['GeneralsX'] &&
+              typeof window['GeneralsX']['setSecondaryProgress'] === 'function') {
+            window['GeneralsX']['setSecondaryProgress']('Audio ready', 1, 1, '');
             // Give the user a beat to read it, then hide.
             setTimeout(function () {
-              if (window.GeneralsX.hideSecondaryProgress) {
-                window.GeneralsX.hideSecondaryProgress();
+              if (window['GeneralsX']['hideSecondaryProgress']) {
+                window['GeneralsX']['hideSecondaryProgress']();
               }
             }, 1500);
           }
@@ -358,9 +378,9 @@ static void DeferredAudio_Step() {
         return;
       }
       EM_ASM({
-        if (window.GeneralsX &&
-            typeof window.GeneralsX.setSecondaryProgress === 'function') {
-          window.GeneralsX.setSecondaryProgress(
+        if (window['GeneralsX'] &&
+            typeof window['GeneralsX']['setSecondaryProgress'] === 'function') {
+          window['GeneralsX']['setSecondaryProgress'](
               'Loading audio assets', $0, $1, UTF8ToString($2));
         }
       }, g_deferredMountIndex, DeferredAudio_Total(), name);
@@ -461,9 +481,8 @@ static bool GameWebFrameCallback(float /*delta_time_ms*/) {
 
   TheGameEngine->update();
 
-  // NOTE: WWAudioThreadsClass::Tick_Delayed_Release_Objects() should be
-  // called here once libwwaudio is linked. See the include block at the top
-  // of this file for the wiring needed when that happens.
+  // Tick the WWAudio delayed release objects per-frame to prevent leaks
+  WWAudioThreadsClass::Tick_Delayed_Release_Objects();
 
   // Pump the deferred audio-archive mount state machine. No-op until the
   // engine reports ready; then mounts one archive per frame so the main loop
@@ -544,9 +563,18 @@ int main(int argc, char *argv[]) {
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     
-    int canvas_width = 1024;
-    int canvas_height = 768;
-    emscripten_get_canvas_element_size("#canvas", &canvas_width, &canvas_height);
+    int canvas_width = 800;
+    int canvas_height = 600;
+    int client_w = EM_ASM_INT({
+      var canvas = document.getElementById('canvas');
+      return canvas ? canvas.clientWidth : 0;
+    });
+    int client_h = EM_ASM_INT({
+      var canvas = document.getElementById('canvas');
+      return canvas ? canvas.clientHeight : 0;
+    });
+    if (client_w > 0) canvas_width = client_w;
+    if (client_h > 0) canvas_height = client_h;
     
     const Uint32 windowFlags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE;
     TheSDL3Window = SDL_CreateWindow(
@@ -567,8 +595,16 @@ int main(int argc, char *argv[]) {
     }
     SDL_GL_MakeCurrent(TheSDL3Window, gl_context);
 
+    double dpr = EM_ASM_DOUBLE({
+      return window.devicePixelRatio || 1.0;
+    });
+    int phys_w = (int)(canvas_width * dpr);
+    int phys_h = (int)(canvas_height * dpr);
+    emscripten_set_canvas_element_size("#canvas", phys_w, phys_h);
+    EmscriptenInput_UpdateCanvasSize(canvas_width, canvas_height);
+
     ApplicationHWnd = (HWND)(void *)TheSDL3Window;
-    fprintf(stderr, "INFO: SDL3 + WebGL 2.0 context ready\n");
+    fprintf(stderr, "INFO: SDL3 + WebGL 2.0 context ready. logical: %dx%d, physical: %dx%d\n", canvas_width, canvas_height, phys_w, phys_h);
     
     GX_ReportProgress("boot", 3, 6, "Initializing GLES3 wrapper");
     if (!GLES3_Init(nullptr, false)) {
@@ -622,9 +658,10 @@ int main(int argc, char *argv[]) {
       // the background once a real audio bridge replaces milesstub.
       static const char *const startup_archives[] = {
           "INI.big", "Textures.big", "W3D.big", "maps.big", "Window.big",
-          "English.big", "shaders.big",
-          "INIZH.big", "TexturesZH.big", "W3DZH.big", "MapsZH.big", "WindowZH.big",
+          "English.big", "shaders.big", "Terrain.big",
+          "INIZH.big", "TexturesZH.big", "W3DZH.big", "W3DEnglishZH.big", "MapsZH.big", "WindowZH.big",
           "EnglishZH.big", "ShadersZH.big", "TerrainZH.big",
+          "Audio.big", "AudioEnglish.big", "Music.big", "AudioZH.big", "AudioEnglishZH.big", "MusicZH.big",
           nullptr};
       // Count how many archives we will mount so the progress bar has a denominator.
       int archive_total = 0;
@@ -789,7 +826,7 @@ int main(int argc, char *argv[]) {
     // local debugging once the WorldHeightMap parsing is fixed.
     if (TheWritableGlobalData) {
       const int opt_in = EM_ASM_INT(({
-        if (window.GeneralsX && window.GeneralsX.enableShellMap) return 1;
+        if (window['GeneralsX'] && window['GeneralsX']['enableShellMap']) return 1;
         // Also accept ?shellmap=1 / #shellmap query string so the flag
         // survives page reloads without needing a JS hook to fire first.
         try {
@@ -835,7 +872,34 @@ int main(int argc, char *argv[]) {
     // rAF-throttled 0Hz any day. Native browsers viewing the page
     // top-level will still get good pacing because setTimeout + frame
     // skipping behaves sensibly there too.
-    WebMainLoop::Start(GameWebFrameCallback, 60, true);
+    int target_fps = 60;
+    const int is_vsync_opt_in = EM_ASM_INT(({
+      var vsync_override = 0;
+      try {
+        if (location.search && location.search.indexOf('vsync=1') >= 0) vsync_override = 1;
+        if (location.search && location.search.indexOf('vsync=0') >= 0) vsync_override = -1;
+        if (location.hash && location.hash.indexOf('vsync') >= 0) vsync_override = 1;
+      } catch(e) {}
+
+      if (vsync_override === 1) return 1;
+      if (vsync_override === -1) return 0;
+
+      // Use vsync if we are top-level
+      try {
+        if (window.self === window.top) {
+          return 1;
+        }
+      } catch(e) {}
+      return 0;
+    }));
+
+    if (is_vsync_opt_in) {
+      target_fps = 0; // 0 maps to requestAnimationFrame (vsync) in Emscripten
+      printf("target FPS: vsync\n");
+    } else {
+      printf("target FPS: 60\n");
+    }
+    WebMainLoop::Start(GameWebFrameCallback, target_fps, true);
 
   } catch (const std::exception &e) {
     fprintf(stderr, "FATAL: Exception during init: %s\n", e.what());
@@ -846,6 +910,28 @@ int main(int argc, char *argv[]) {
   }
 
   return 0; // Exits cleanly, transferring control entirely to browser
+}
+
+#include "Common/FileSystem.h"
+#include "Common/file.h"
+
+extern "C" char* WebAudioBridge_ReadEntireFile(const char* filename, uint32_t* out_size)
+{
+  if (!TheFileSystem) {
+    printf("[WebAudioBridge_ReadEntireFile] TheFileSystem is NULL\n");
+    return nullptr;
+  }
+  File* f = TheFileSystem->openFile(filename, File::READ | File::BINARY);
+  if (!f) {
+    printf("[WebAudioBridge_ReadEntireFile] Failed to open '%s'\n", filename);
+    return nullptr;
+  }
+  uint32_t size = f->size();
+  char* buf = f->readEntireAndClose();
+  if (out_size) {
+    *out_size = size;
+  }
+  return buf;
 }
 
 #endif // __EMSCRIPTEN__

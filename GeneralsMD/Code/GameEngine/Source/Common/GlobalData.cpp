@@ -1064,7 +1064,11 @@ GlobalData::GlobalData() {
   m_useLightMap = FALSE;
   m_bilinearTerrainTex = FALSE;
   m_trilinearTerrainTex = FALSE;
+#ifdef __EMSCRIPTEN__
+  m_multiPassTerrain = TRUE;
+#else
   m_multiPassTerrain = FALSE;
+#endif
   m_adjustCliffTextures = FALSE;
   m_stretchTerrain = FALSE;
   m_useHalfHeightMap = FALSE;

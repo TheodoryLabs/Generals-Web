@@ -760,12 +760,23 @@ void Player::setDefaultTeam() {
 	tname.set("team");
 	tname.concat(m_playerName);
 	Team *dt = TheTeamFactory->findTeam(tname);
+	if (!dt) {
+		AsciiString ownerName = TheNameKeyGenerator->keyToName(m_playerNameKey);
+		fprintf(stderr, "WARNING: Default team %s not found. Creating dynamically with owner %s...\n", tname.str(), ownerName.str());
+		Dict d;
+		d.setAsciiString(TheKey_teamName, tname);
+		d.setAsciiString(TheKey_teamOwner, ownerName);
+		d.setBool(TheKey_teamIsSingleton, true);
+		TheTeamFactory->initTeam(tname, ownerName, true, &d);
+		dt = TheTeamFactory->findTeam(tname);
+	}
 	DEBUG_ASSERTCRASH(dt, ("no team"));
 	if (dt) {
 		m_defaultTeam = dt;
 		dt->setActive();
 	}
 }
+
 
 //=============================================================================
 void Player::deletePlayerAI()

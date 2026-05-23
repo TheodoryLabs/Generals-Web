@@ -75,11 +75,13 @@
         align-items: center;
         justify-content: center;
         z-index: 10;
-        transition: opacity 600ms ease-out;
+        transition: opacity 600ms ease-out, visibility 600ms ease-out;
+        visibility: visible;
       }
       #gx-loading.gx-hide {
         opacity: 0;
         pointer-events: none;
+        visibility: hidden;
       }
       #gx-title {
         font-size: 26px;
@@ -313,6 +315,47 @@
     <pre id="gx-output"></pre>
 
     <script>
+      (function() {
+        const orgAdd = HTMLCanvasElement.prototype.addEventListener;
+        const orgRemove = HTMLCanvasElement.prototype.removeEventListener;
+        const map = new WeakMap();
+
+        HTMLCanvasElement.prototype.addEventListener = function(type, listener, options) {
+          if (typeof listener !== 'function') {
+            return orgAdd.call(this, type, listener, options);
+          }
+          const self = this;
+          const wrapped = function(e) {
+            const rect = self.getBoundingClientRect();
+            console.log(`[CANVAS-EVENT] type=${e.type} button=${e.button} clientX=${e.clientX} clientY=${e.clientY} rect.left=${rect.left} rect.top=${rect.top} rect.width=${rect.width} rect.height=${rect.height} canvas.width=${self.width} canvas.height=${self.height}`);
+            return listener.apply(this, arguments);
+          };
+          if (!map.has(this)) {
+            map.set(this, new Map());
+          }
+          const typeMap = map.get(this);
+          if (!typeMap.has(type)) {
+            typeMap.set(type, new Map());
+          }
+          typeMap.get(type).set(listener, wrapped);
+          console.log(`[CANVAS-ADD-LISTENER] id=${self.id} type=${type}`);
+          return orgAdd.call(this, type, wrapped, options);
+        };
+
+        HTMLCanvasElement.prototype.removeEventListener = function(type, listener, options) {
+          if (typeof listener !== 'function') {
+            return orgRemove.call(this, type, listener, options);
+          }
+          const typeMap = map.get(this)?.get(type);
+          const wrapped = typeMap?.get(listener);
+          if (wrapped) {
+            typeMap.delete(listener);
+            return orgRemove.call(this, type, wrapped, options);
+          }
+          return orgRemove.call(this, type, listener, options);
+        };
+      })();
+
       // ====================================================================
       // window.GeneralsX — bridge between the WASM engine and the loading UI.
       //
@@ -334,6 +377,48 @@
         const errorEl  = document.getElementById('gx-error');
         const errorDet = document.getElementById('gx-error-detail');
         const outputEl = document.getElementById('gx-output');
+
+        // Virtual UDP BroadcastChannel networking routing
+        const urlParams = new URLSearchParams(window.location.search);
+        const virtualNetEnabled = urlParams.has('virtual_net') || urlParams.has('ip') || urlParams.has('virtual_ip');
+        
+        let virtualIP = [127, 0, 0, 1];
+        if (virtualNetEnabled) {
+          const ipParam = urlParams.get('ip') || urlParams.get('virtual_ip');
+          if (ipParam && /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ipParam)) {
+            virtualIP = ipParam.split('.').map(Number);
+          } else {
+            // Auto-assign random IP on 10.0.0.X (between 2 and 254)
+            const randomOctet = Math.floor(Math.random() * 253) + 2;
+            virtualIP = [10, 0, 0, randomOctet];
+          }
+          console.log(`[GeneralsX] Virtual Networking enabled. Assigned Virtual IP: ${virtualIP.join('.')}`);
+        }
+
+        const ipToUint32 = (octets) => {
+          return ((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]) >>> 0;
+        };
+        const virtualIPInt = ipToUint32(virtualIP);
+
+        const bc = new BroadcastChannel('generalsx-virtual-lan');
+        bc.onmessage = function (e) {
+          if (!virtualNetEnabled) return;
+          if (e.data && e.data.type === 'udp_packet') {
+            const packet = e.data;
+            const isBroadcast = packet.destIP === 0xFFFFFFFF;
+            const isForUs = isBroadcast || (packet.destIP === virtualIPInt);
+            if (isForUs && packet.srcIP !== virtualIPInt) {
+              if (window.Module && typeof window.Module._GX_Network_PushPacket === 'function') {
+                const payload = packet.payload;
+                const len = payload.length;
+                const ptr = window.Module._malloc(len);
+                window.Module.HEAPU8.set(payload, ptr);
+                window.Module._GX_Network_PushPacket(ptr, len, packet.srcIP, packet.srcPort);
+                window.Module._free(ptr);
+              }
+            }
+          }
+        };
 
         // Stage display names. The C++ side uses the keys; the UI uses the values.
         const STAGE_LABELS = {
@@ -363,16 +448,38 @@
         let gxReadyPending = false;
         const startBtn = document.getElementById('gx-start');
 
+        function removeGestureListeners() {
+          ['pointerdown', 'keydown', 'touchstart', 'click', 'touchend'].forEach((evt) => {
+            window.removeEventListener(evt, gxOnFirstGesture,
+                                    { passive: true, capture: true });
+          });
+          if (startBtn) {
+            startBtn.removeEventListener('click', gxOnFirstGesture);
+          }
+        }
+
         function gxResumeAudioContext() {
           // Best-effort. Safe whether or not WWAudio / Web Audio is wired up
           // yet — when the audio backend lands, this is the gesture that
           // unblocks AudioContext.resume(). The Module property is the
           // canonical place Emscripten apps stash an AudioContext.
           try {
-            if (window.Module && window.Module.SDL2 &&
-                window.Module.SDL2.audioContext &&
-                typeof window.Module.SDL2.audioContext.resume === 'function') {
-              window.Module.SDL2.audioContext.resume();
+            const ctx = (window.Module && window.Module.SDL2 && window.Module.SDL2.audioContext) ||
+                        (window.AILBridge && window.AILBridge.audioContext);
+            if (ctx) {
+              if (typeof ctx.resume === 'function') {
+                if (ctx.state === 'suspended') {
+                  ctx.resume().then(() => {
+                    console.log('[GeneralsX] AudioContext resumed successfully');
+                    removeGestureListeners();
+                  }).catch((err) => {
+                    console.warn('[GeneralsX] AudioContext resume failed:', err);
+                  });
+                } else if (ctx.state === 'running') {
+                  console.log('[GeneralsX] AudioContext is already running');
+                  removeGestureListeners();
+                }
+              }
             }
           } catch (e) { /* ignore — backend may not exist yet */ }
         }
@@ -392,9 +499,8 @@
         }
 
         function gxOnFirstGesture() {
-          if (gxUserGestureSeen) return;
-          gxUserGestureSeen = true;
           gxResumeAudioContext();
+          gxUserGestureSeen = true;
           // If the engine had been waiting for us, finish the handoff now.
           if (gxReadyPending) {
             gxReadyPending = false;
@@ -404,7 +510,7 @@
         }
 
         // Any of these counts as a gesture for autoplay purposes.
-        ['pointerdown', 'keydown', 'touchstart'].forEach((evt) => {
+        ['pointerdown', 'keydown', 'touchstart', 'click', 'touchend'].forEach((evt) => {
           window.addEventListener(evt, gxOnFirstGesture,
                                   { passive: true, capture: true });
         });
@@ -423,6 +529,20 @@
         }
 
         window.GeneralsX = {
+          virtualIP: virtualIP,
+          virtualNetEnabled: virtualNetEnabled,
+          onSendPacket: function (data, destIP, destPort) {
+            if (!virtualNetEnabled) return;
+            bc.postMessage({
+              type: 'udp_packet',
+              srcIP: virtualIPInt,
+              srcPort: 8087,
+              destIP: destIP,
+              destPort: destPort,
+              payload: data
+            });
+          },
+
           setProgress: function (stage, current, total, label) {
             if (lastReady) return; // ignore late updates after engine is up
 
@@ -432,12 +552,17 @@
               stageEl.textContent = 'Ready';
               labelEl.textContent = '';
               countEl.textContent = '';
-              // If the user has already interacted with the page (the typical
-              // case — they clicked or pressed a key while WASM was loading)
-              // we can fade straight out. Otherwise, surface the "Begin"
-              // button so the browser's autoplay / pointer-lock policies
-              // have a gesture to attach to.
-              if (gxUserGestureSeen) {
+              // Best-effort to resume AudioContext. Note that if the browser
+              // blocks the resume call because it is not within a user gesture
+              // callback, we fall back to showing the "Begin" button even if
+              // a gesture was previously recorded.
+              gxResumeAudioContext();
+
+              const ctx = (window.Module && window.Module.SDL2 && window.Module.SDL2.audioContext) ||
+                          (window.AILBridge && window.AILBridge.audioContext);
+              const isAudioActiveOrNoAudio = !ctx || ctx.state === 'running';
+
+              if (gxUserGestureSeen && isAudioActiveOrNoAudio) {
                 gxFinishLoading();
               } else {
                 gxReadyPending = true;
@@ -703,26 +828,85 @@
         // EmscriptenMain.cpp.
         // ------------------------------------------------------------------
         const idbfsPreRun = function () {
+          const fs = window['Module']['FS'] || (typeof FS !== 'undefined' ? FS : null);
+          if (!fs) {
+            console.warn('[GeneralsX] FS is not defined on Module or globally!');
+            return;
+          }
+          if (fs) {
+            if (!fs['mkdir'] || !fs['mount'] || !fs['syncfs']) {
+              console.log('[GeneralsX] FS.mkdir, FS.mount or FS.syncfs is missing, scanning for minified aliases...');
+              for (const key in fs) {
+                if (typeof fs[key] === 'function') {
+                  const str = fs[key].toString();
+                  if (!fs['syncfs'] && (str.includes('FS.syncfs') || str.includes('operations in flight') || str.includes('extra work'))) {
+                    fs['syncfs'] = fs[key];
+                    console.log(`[GeneralsX] Found minified FS.syncfs as fs['${key}']`);
+                  }
+                  if (!fs['mkdir'] && str.includes('16384')) {
+                    fs['mkdir'] = fs[key];
+                    console.log(`[GeneralsX] Found minified FS.mkdir as fs['${key}']`);
+                  }
+                  if (!fs['mount'] && fs[key].length === 3 && (str.includes('===') && (str.includes('c') || str.includes('mountpoint')) && (str.includes('/') || str.includes('ErrnoError') || str.includes('gj(')))) {
+                    fs['mount'] = fs[key];
+                    console.log(`[GeneralsX] Found minified FS.mount as fs['${key}']`);
+                  }
+                }
+              }
+            }
+          }
+          let idbfs = window['IDBFS'] || (fs['filesystems'] && fs['filesystems']['IDBFS']);
+          if (!idbfs) {
+            // In release mode, Closure Compiler minifies FS.filesystems (e.g. to FS.Np).
+            // Scan FS properties dynamically for an object containing 'MEMFS' and 'IDBFS'.
+            for (const key in fs) {
+              if (fs.hasOwnProperty(key) && fs[key] && typeof fs[key] === 'object' && fs[key]['MEMFS'] && fs[key]['IDBFS']) {
+                idbfs = fs[key]['IDBFS'];
+                console.log(`[GeneralsX] Found IDBFS via minified filesystems property: ${key}`);
+                break;
+              }
+            }
+          }
+          if (idbfs) {
+            const keys = [];
+            for (const key in idbfs) {
+              keys.push(key + ' (len=' + (typeof idbfs[key] === 'function' ? idbfs[key].length : 'N/A') + ')');
+              if (typeof idbfs[key] === 'function') {
+                if (typeof idbfs['mount'] !== 'function' && idbfs[key].length === 1 && key !== 'mount') {
+                  idbfs['mount'] = idbfs[key];
+                  console.log(`[GeneralsX] Aliased IDBFS.${key} to IDBFS.mount`);
+                } else if (typeof idbfs['syncfs'] !== 'function' && idbfs[key].length === 3 && key !== 'syncfs') {
+                  idbfs['syncfs'] = idbfs[key];
+                  console.log(`[GeneralsX] Aliased IDBFS.${key} to IDBFS.syncfs`);
+                }
+              }
+            }
+            console.log('[GeneralsX] IDBFS keys and properties scanned:', keys.join(', '));
+          }
+          if (!idbfs) {
+            console.warn('[GeneralsX] IDBFS is not defined!');
+            return;
+          }
           try {
-            FS.mkdir('/userdata');
+            fs['mkdir']('/userdata');
           } catch (e) {
             // Already exists — fine.
           }
           try {
-            FS.mount(IDBFS, {}, '/userdata');
+            fs['mount'](idbfs, {}, '/userdata');
           } catch (e) {
             console.warn('[GeneralsX] IDBFS mount failed:', e);
             return;
           }
-          Module.addRunDependency('idbfs-load');
+          window['Module']['addRunDependency']('idbfs-load');
           stageEl.textContent = 'Loading saved data';
-          FS.syncfs(true, function (err) {
+          fs['syncfs'](true, function (err) {
             if (err) {
               console.warn('[GeneralsX] IDBFS load failed:', err);
             } else {
               console.log('[GeneralsX] IDBFS load complete');
             }
-            Module.removeRunDependency('idbfs-load');
+            window['Module']['removeRunDependency']('idbfs-load');
           });
         };
 
@@ -731,6 +915,22 @@
           print: printToOutput,
           printErr: printErrToOutput,
           preRun: [idbfsPreRun],
+          onRuntimeInitialized: function () {
+            if (virtualNetEnabled) {
+              console.log(`[GeneralsX] Enabling virtual networking with IP: ${virtualIP.join('.')}`);
+              if (typeof window.Module._GX_Network_EnableVirtual === 'function') {
+                window.Module._GX_Network_EnableVirtual(true);
+              }
+              if (typeof window.Module._GX_Network_SetVirtualIP === 'function') {
+                window.Module._GX_Network_SetVirtualIP(
+                  virtualIP[0],
+                  virtualIP[1],
+                  virtualIP[2],
+                  virtualIP[3]
+                );
+              }
+            }
+          },
           setStatus: function (text) {
             // Emscripten's setStatus receives strings like
             //   "Downloading data... (1234/5678)"

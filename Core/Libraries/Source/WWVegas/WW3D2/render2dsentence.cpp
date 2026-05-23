@@ -335,9 +335,9 @@ void Render2DSentenceClass::Build_Textures() {
     new_texture->Get_Filter().Set_V_Addr_Mode(
         TextureFilterClass::TEXTURE_ADDRESS_CLAMP);
     new_texture->Get_Filter().Set_Min_Filter(
-        TextureFilterClass::FILTER_TYPE_NONE);
+        TextureFilterClass::FILTER_TYPE_BEST);
     new_texture->Get_Filter().Set_Mag_Filter(
-        TextureFilterClass::FILTER_TYPE_NONE);
+        TextureFilterClass::FILTER_TYPE_BEST);
     new_texture->Get_Filter().Set_Mip_Mapping(
         TextureFilterClass::FILTER_TYPE_NONE);
 
@@ -1330,8 +1330,8 @@ const FontCharsClassCharDataStruct *FontCharsClass::Store_GDI_Char(WCHAR ch) {
   // ferry pixel data back into the engine's buffer. The width of each
   // glyph is whatever Canvas 2D's measureText reports (clamped to the
   // scratch size), which keeps proportional fonts looking right.
-  enum { MAX_CHAR_W = 32 };
-  enum { MAX_CHAR_H = 32 };
+  enum { MAX_CHAR_W = 128 };
+  enum { MAX_CHAR_H = 128 };
   uint16 stage_buf[MAX_CHAR_W * MAX_CHAR_H];
 
   int char_h = CharHeight;
@@ -1344,17 +1344,18 @@ const FontCharsClassCharDataStruct *FontCharsClass::Store_GDI_Char(WCHAR ch) {
     var charHeight = $3;
     var maxW = $4;
     var bufPtr = $5;
-    var fontName = (typeof Module.gxFontFamily === 'string') ?
-                    Module.gxFontFamily : 'Arial, sans-serif';
-    var canvas = Module.gxFontCanvas;
-    var ctx = Module.gxFontCtx;
+    var pixelOverlap = $6;
+    var fontName = (typeof window.gxFontFamily === 'string') ?
+                    window.gxFontFamily : 'Arial, sans-serif';
+    var canvas = window.gxFontCanvas;
+    var ctx = window.gxFontCtx;
     if (!canvas) {
       canvas = document.createElement('canvas');
-      canvas.width = 64;
-      canvas.height = 64;
-      Module.gxFontCanvas = canvas;
-      Module.gxFontCtx = canvas.getContext('2d', { willReadFrequently: true });
-      ctx = Module.gxFontCtx;
+      canvas.width = 256;
+      canvas.height = 256;
+      window.gxFontCanvas = canvas;
+      window.gxFontCtx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx = window.gxFontCtx;
     }
     if (!ctx) return 1;
     var weight = isBold ? 'bold ' : '';
@@ -1364,13 +1365,14 @@ const FontCharsClassCharDataStruct *FontCharsClass::Store_GDI_Char(WCHAR ch) {
     var str = String.fromCharCode(charCode);
     var w = Math.ceil(ctx.measureText(str).width);
     if (w < 1) w = 1;
-    if (w > maxW) w = maxW;
-    ctx.clearRect(0, 0, 64, 64);
+    if (w > maxW - pixelOverlap) w = maxW - pixelOverlap;
+    var totalW = w + pixelOverlap;
+    ctx.clearRect(0, 0, 256, 256);
     // Baseline = ascent ~ 80% of charHeight.
     ctx.fillText(str, 0, Math.floor(charHeight * 0.8));
     var img = ctx.getImageData(0, 0, w, charHeight);
     var px = img.data;
-    var heap = Module.HEAPU16;
+    var heap = HEAPU16;
     var dst = bufPtr >> 1;  // uint16 index
     for (var y = 0; y < charHeight; ++y) {
       for (var x = 0; x < w; ++x) {
@@ -1384,12 +1386,15 @@ const FontCharsClassCharDataStruct *FontCharsClass::Store_GDI_Char(WCHAR ch) {
         var r = px[srcIdx];
         var v = (r > a) ? r : a;
         var fourBit = v >> 4;
-        heap[dst + y * w + x] = (v ? 0x0FFF : 0) | (fourBit << 12);
+        heap[dst + y * totalW + x] = (v ? 0x0FFF : 0) | (fourBit << 12);
+      }
+      for (var x = w; x < totalW; ++x) {
+        heap[dst + y * totalW + x] = 0;
       }
     }
-    return w;
+    return totalW;
   }), (int)ch, PointSize, IsBold ? 1 : 0, char_h,
-      MAX_CHAR_W, (int)(uintptr_t)stage_buf);
+      MAX_CHAR_W, (int)(uintptr_t)stage_buf, PixelOverlap);
 
   if (char_w <= 0) char_w = 1;
   if (char_w > MAX_CHAR_W) char_w = MAX_CHAR_W;

@@ -20,6 +20,9 @@
 // windows_base.h provides WM_* message defines
 #include "windows_base.h"
 
+// Access to TheDisplay for logical resolution dimensions
+#include "GameClient/Display.h"
+
 // dinput.h provides EmscriptenDIKEntry, EMSCRIPTEN_DINPUT_BUFFER_SIZE,
 // and the extern declarations for the key buffer globals.
 #include "dinput.h"
@@ -32,6 +35,7 @@
 EmscriptenDIKEntry g_emscriptenKeyBuffer[EMSCRIPTEN_DINPUT_BUFFER_SIZE];
 int g_emscriptenKeyReadIdx = 0;
 int g_emscriptenKeyWriteIdx = 0;
+static bool g_emscriptenKeysPressed[256] = { false };
 
 // c_dfDIKeyboard — referenced by DirectInputKeyboard but never meaningfully
 // used on Emscripten (SetDataFormat is a no-op stub).
@@ -165,16 +169,54 @@ static int g_twoFingerLastCentroidY = 0;
 static float g_twoFingerLastPinch = 0.0f;
 static bool g_lmbDownFromSyntheticTouch = false;
 
+static int ScaleMouseX(int x) {
+  int targetW = 800;
+  if (TheDisplay != nullptr) {
+    targetW = TheDisplay->getWidth();
+  }
+  int sdlW = g_canvasW;
+  extern SDL_Window *TheSDL3Window;
+  if (TheSDL3Window) {
+    int sdlH = 0;
+    SDL_GetWindowSize(TheSDL3Window, &sdlW, &sdlH);
+  }
+  if (sdlW > 0) {
+    x = (int)std::round((double)x * targetW / sdlW);
+  }
+  if (x < 0) return 0;
+  if (x > targetW - 1) return targetW - 1;
+  return x;
+}
+
+static int ScaleMouseY(int y) {
+  int targetH = 600;
+  if (TheDisplay != nullptr) {
+    targetH = TheDisplay->getHeight();
+  }
+  int sdlH = g_canvasH;
+  extern SDL_Window *TheSDL3Window;
+  if (TheSDL3Window) {
+    int sdlW = 0;
+    SDL_GetWindowSize(TheSDL3Window, &sdlW, &sdlH);
+  }
+  if (sdlH > 0) {
+    y = (int)std::round((double)y * targetH / sdlH);
+  }
+  if (y < 0) return 0;
+  if (y > targetH - 1) return targetH - 1;
+  return y;
+}
+
 static int Touch_NormalizedToPixelX(float nx) {
   if (nx < 0.f) nx = 0.f;
   if (nx > 1.f) nx = 1.f;
-  return (int)(nx * (float)(g_canvasW > 0 ? g_canvasW - 1 : 0));
+  return (int)(nx * (float)(g_canvasW - 1));
 }
 
 static int Touch_NormalizedToPixelY(float ny) {
   if (ny < 0.f) ny = 0.f;
   if (ny > 1.f) ny = 1.f;
-  return (int)(ny * (float)(g_canvasH > 0 ? g_canvasH - 1 : 0));
+  return (int)(ny * (float)(g_canvasH - 1));
 }
 
 static void Touch_QueryCentroidAndPinch(int *cxOut, int *cyOut,
@@ -219,7 +261,9 @@ static void Touch_QueryCentroidAndPinch(int *cxOut, int *cyOut,
 }
 
 static long Touch_PackXY(int x, int y) {
-  return (long)((x & 0xFFFF) | ((y & 0xFFFF) << 16));
+  int sx = ScaleMouseX(x);
+  int sy = ScaleMouseY(y);
+  return (long)((sx & 0xFFFF) | ((sy & 0xFFFF) << 16));
 }
 
 static void Touch_BeginTwoFingerMode() {
@@ -410,6 +454,7 @@ void EmscriptenInput_PumpEvents() {
                     (event.type == SDL_KEYDOWN) ? 0x80 : 0x00;
                 g_emscriptenKeyBuffer[idx].dwTimeStamp = SDL_GetTicks();
                 g_emscriptenKeyWriteIdx++;
+                g_emscriptenKeysPressed[dik] = (event.type == SDL_KEYDOWN);
             }
             break;
         }
@@ -433,24 +478,28 @@ void EmscriptenInput_PumpEvents() {
             if (g_relativeMouseActive) {
                 g_virtualMouseX += event.motion.xrel;
                 g_virtualMouseY += event.motion.yrel;
-                // Clamp to canvas extents so cursor coords don't wander off
-                // the addressable LPARAM range and so the engine's hit-testing
-                // stays sane during long drags.
                 if (g_virtualMouseX < 0) g_virtualMouseX = 0;
                 if (g_virtualMouseY < 0) g_virtualMouseY = 0;
-                if (g_virtualMouseX > g_canvasW - 1)
-                    g_virtualMouseX = g_canvasW - 1;
-                if (g_virtualMouseY > g_canvasH - 1)
-                    g_virtualMouseY = g_canvasH - 1;
+                int sdlW = g_canvasW, sdlH = g_canvasH;
+                extern SDL_Window *TheSDL3Window;
+                if (TheSDL3Window) {
+                    SDL_GetWindowSize(TheSDL3Window, &sdlW, &sdlH);
+                }
+                int maxW = sdlW > 0 ? (sdlW - 1) : 1023;
+                int maxH = sdlH > 0 ? (sdlH - 1) : 767;
+                if (g_virtualMouseX > maxW) g_virtualMouseX = maxW;
+                if (g_virtualMouseY > maxH) g_virtualMouseY = maxH;
                 x = g_virtualMouseX;
                 y = g_virtualMouseY;
             } else {
-                g_virtualMouseX = event.motion.x;
-                g_virtualMouseY = event.motion.y;
                 x = event.motion.x;
                 y = event.motion.y;
+                g_virtualMouseX = x;
+                g_virtualMouseY = y;
             }
-            long lp = (long)((x & 0xFFFF) | ((y & 0xFFFF) << 16));
+            int sx = ScaleMouseX(x);
+            int sy = ScaleMouseY(y);
+            long lp = (long)((sx & 0xFFFF) | ((sy & 0xFFFF) << 16));
             EmscriptenInput_RouteMouseEvent(WM_MOUSEMOVE, 0, lp,
                                             SDL_GetTicks());
             break;
@@ -477,8 +526,15 @@ void EmscriptenInput_PumpEvents() {
                 // canvas.mousedown listener (which is in the user-gesture
                 // stack). The resulting pointerlockchange callback flips
                 // g_relativeMouseActive via EmscriptenInput_OnPointerLockChange.
-                long lp = (long)((event.button.x & 0xFFFF) |
-                                 ((event.button.y & 0xFFFF) << 16));
+                int x = event.button.x;
+                int y = event.button.y;
+                if (g_relativeMouseActive) {
+                    x = g_virtualMouseX;
+                    y = g_virtualMouseY;
+                }
+                int sx = ScaleMouseX(x);
+                int sy = ScaleMouseY(y);
+                long lp = (long)((sx & 0xFFFF) | ((sy & 0xFFFF) << 16));
                 EmscriptenInput_RouteMouseEvent(msg, 0, lp, SDL_GetTicks());
             }
             break;
@@ -508,7 +564,9 @@ void EmscriptenInput_PumpEvents() {
                     x = g_virtualMouseX;
                     y = g_virtualMouseY;
                 }
-                long lp = (long)((x & 0xFFFF) | ((y & 0xFFFF) << 16));
+                int sx = ScaleMouseX(x);
+                int sy = ScaleMouseY(y);
+                long lp = (long)((sx & 0xFFFF) | ((sy & 0xFFFF) << 16));
                 EmscriptenInput_RouteMouseEvent(msg, 0, lp, SDL_GetTicks());
             }
             break;
@@ -520,7 +578,9 @@ void EmscriptenInput_PumpEvents() {
             unsigned long wp = (unsigned long)((delta & 0xFFFF) << 16);
             int mx, my;
             SDL_GetMouseState(&mx, &my);
-            long lp = (long)((mx & 0xFFFF) | ((my & 0xFFFF) << 16));
+            int smx = ScaleMouseX(mx);
+            int smy = ScaleMouseY(my);
+            long lp = (long)((smx & 0xFFFF) | ((smy & 0xFFFF) << 16));
             EmscriptenInput_RouteMouseEvent(WM_MOUSEWHEEL, wp, lp,
                                             SDL_GetTicks());
             break;
@@ -617,7 +677,19 @@ void EmscriptenInput_PumpEvents() {
                 g_canvasH = event.window.data2 > 0 ? event.window.data2 : 768;
                 break;
             case SDL_WINDOWEVENT_FOCUS_LOST:
-                fprintf(stderr, "INFO: Window lost focus\n");
+                fprintf(stderr, "INFO: Window lost focus - releasing keys\n");
+                // Release all currently pressed keys to avoid stuck keys
+                for (int dik = 0; dik < 256; ++dik) {
+                    if (g_emscriptenKeysPressed[dik]) {
+                        int idx = g_emscriptenKeyWriteIdx &
+                                  (EMSCRIPTEN_DINPUT_BUFFER_SIZE - 1);
+                        g_emscriptenKeyBuffer[idx].dwOfs = dik;
+                        g_emscriptenKeyBuffer[idx].dwData = 0x00;
+                        g_emscriptenKeyBuffer[idx].dwTimeStamp = SDL_GetTicks();
+                        g_emscriptenKeyWriteIdx++;
+                        g_emscriptenKeysPressed[dik] = false;
+                    }
+                }
                 // Drop pointer lock proactively if focus moves out of the
                 // canvas (the browser would do this for us, but our state
                 // mirror would otherwise be stale).

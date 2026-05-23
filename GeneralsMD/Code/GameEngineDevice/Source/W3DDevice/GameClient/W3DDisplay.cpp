@@ -1560,81 +1560,14 @@ void W3DDisplay::drawCurrentDebugDisplay()
 //=============================================================================
 void W3DDisplay::calculateTerrainLOD()
 {
-	const Int NUM_SAMPLES=20;
-	const Int NUM_TO_DISCARD=5;
-
-	Int64 freq64 = getPerformanceCounterFrequency();
-
-	char buf[_MAX_PATH];
-	float frameTime = 0;
-	float maxTimeLimit = TheGlobalData->m_terrainLODTargetTimeMS/1000.0f;
-	TerrainLOD goodLOD = TERRAIN_LOD_MIN;
-	TerrainLOD curLOD = TERRAIN_LOD_AUTOMATIC;
-	Int count = 0;
-#ifdef RTS_DEBUG
-	// just go to TERRAIN_LOD_NO_WATER, mirror off.
-	TheWritableGlobalData->m_terrainLOD = TERRAIN_LOD_NO_WATER;
+	// Force terrain LOD to maximum to restore 3D heightmap rendering on WebAssembly.
+	// Bypasses the startup benchmark loop entirely, which renders hundreds of
+	// frames on startup and blocks/slows the game boot.
+	TheWritableGlobalData->m_terrainLOD = TERRAIN_LOD_MAX;
 	m_3DScene->drawTerrainOnly(false);
-	TheTerrainRenderObject->adjustTerrainLOD(0);
-	return;
-#endif
-	do {
-		Int i;
-		float timeForFrame=0;
-		frameTime = 0;
-		switch(curLOD) {
-			default: curLOD = TERRAIN_LOD_DISABLE; break;
-			case TERRAIN_LOD_AUTOMATIC: curLOD = TERRAIN_LOD_MAX; break;
-			case TERRAIN_LOD_MAX: curLOD = TERRAIN_LOD_NO_WATER; break;
-			case TERRAIN_LOD_HALF_CLOUDS: curLOD = TERRAIN_LOD_DISABLE; break;
-			case TERRAIN_LOD_NO_WATER: curLOD = TERRAIN_LOD_HALF_CLOUDS; break;
-		}
-		if (curLOD == TERRAIN_LOD_DISABLE) {
-			break;
-		}
-		TheWritableGlobalData->m_terrainLOD = curLOD;
-		m_3DScene->drawTerrainOnly(true);
+	if (TheTerrainRenderObject) {
 		TheTerrainRenderObject->adjustTerrainLOD(0);
-		for (i=0; i<NUM_SAMPLES; i++) {
-			Int64 startTime64 = getPerformanceCounter();
-			// start render block
-			updateViews();
-			if (WW3D::Begin_Render( true, true, Vector3( 0.0f, 0.0f, 0.0f ) ) == WW3D_ERROR_OK)
-			{	// draw all views of the world
-				drawViews();
-				// render is all done!
-				WW3D::End_Render();
-			}
-			Int64 time64 = getPerformanceCounter();
-			timeForFrame = (float)((double)(time64-startTime64) / (double)(freq64));
-			sprintf(buf, "%.2fms ", timeForFrame*1000.0f);
-			::OutputDebugString(buf);
-			if (i>=NUM_TO_DISCARD) {
-				frameTime += timeForFrame;
-				if (i>NUM_TO_DISCARD+1 &&
-					(timeForFrame / ((i+1)-NUM_TO_DISCARD)) > 2*maxTimeLimit) {
-					i++;
-					break;
-				}
-			}
-		}
-		frameTime /= ((i)-NUM_TO_DISCARD);
-		count++;
-		sprintf(buf, "\n LOD %d, time %.2fms\n", curLOD, frameTime*1000.0f);
-		::OutputDebugString(buf);
-		if (frameTime<maxTimeLimit && goodLOD<curLOD) {
-			goodLOD = curLOD;
-		}
-		if (frameTime < maxTimeLimit) break;
-	} while (count<10);
-
-	TheWritableGlobalData->m_terrainLOD = goodLOD;
-	m_3DScene->drawTerrainOnly(false);
-	TheTerrainRenderObject->adjustTerrainLOD(0);
-#ifdef RTS_DEBUG
-	DEBUG_ASSERTCRASH(count<10, ("calculateTerrainLOD") );
-#endif
-
+	}
 }
 
 
@@ -1963,6 +1896,10 @@ AGAIN:
 		{
 			freezeTime = false; // We're frozen for debug or for pause, and need to continue out of the loop.
 		}
+
+#if defined(__EMSCRIPTEN__)
+		freezeTime = false;
+#endif
 
 	} while (freezeTime && !TheTacticalView->isCameraMovementFinished());
 

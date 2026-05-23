@@ -41,6 +41,8 @@
 #include "GameLogic/GameLogic.h"
 #include "GameNetwork/GameSpyOverlay.h"
 #include "GameNetwork/GameSpy/PeerDefsImplementation.h"
+#include "Common/GameAudio.h"
+#include "Common/AudioEventRTS.h"
 
 #include <rts/profile.h>
 
@@ -182,6 +184,25 @@ void Shell::update()
 	static Int lastUpdate = timeGetTime();
 	static const Int shellUpdateDelay = 30;  // try to update 30 frames a second
 	Int now = timeGetTime();
+
+	static int s_shellUpdateSpam = 0;
+	if (s_shellUpdateSpam++ % 30 == 0)
+	{
+		fprintf(stderr, "GX-TRACE: Shell::update entered! count=%d, now=%d, lastUpdate=%d, m_screenCount=%d\n",
+			s_shellUpdateSpam, now, lastUpdate, m_screenCount);
+		for( Int i = m_screenCount - 1; i >= 0; i-- )
+		{
+			if (m_screenStack[i])
+			{
+				fprintf(stderr, "GX-TRACE:   screen[%d] = '%s', hidden=%d\n",
+					i, m_screenStack[i]->getFilename().str(), (int)m_screenStack[i]->isHidden());
+			}
+			else
+			{
+				fprintf(stderr, "GX-TRACE:   screen[%d] = NULL\n", i);
+			}
+		}
+	}
 
 	//
 	// we keep the shell updates fixed in time so that we can write consistent animation
@@ -566,6 +587,12 @@ void Shell::showShellMap(Bool useShellMap )
 			top()->bringForward();
 		m_shellMapOn = FALSE;
 		m_clearBackground = FALSE;
+		if (TheAudio && !TheAudio->isMusicPlaying())
+		{
+			AudioEventRTS event("Credits");
+			event.setShouldFade(TRUE);
+			TheAudio->addAudioEvent(&event);
+		}
 	}
 }
 

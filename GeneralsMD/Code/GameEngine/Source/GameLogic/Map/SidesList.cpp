@@ -250,17 +250,24 @@ Bool SidesList::ParseSidesDataChunk(DataChunkInput &file, DataChunkInfo *info, v
 		return false;
 
 	TheSidesList->clear();
+	printf("DEBUG-SIDES: ParseSidesDataChunk start. version=%d dataSize=%d\n", (int)info->version, (int)info->dataSize);
 	Int count = file.readInt();
+	printf("DEBUG-SIDES: count of sides=%d\n", (int)count);
 	Int i, j;
 	TheSidesList->emptySides();
 	for (i=0; i<count; i++)
 	{
-		if (i >= MAX_PLAYER_COUNT) break;
+		if (i >= MAX_PLAYER_COUNT) {
+			printf("DEBUG-SIDES: Break at MAX_PLAYER_COUNT i=%d\n", (int)i);
+			break;
+		}
+		printf("DEBUG-SIDES: Parsing side i=%d\n", (int)i);
 		Dict d =  file.readDict();
 		TheSidesList->addSide(&d);
 		BuildListInfo* pBuildList;
-		Int count = file.readInt();
-		for (j=0; j<count; j++)
+		Int count_bl = file.readInt();
+		printf("DEBUG-SIDES:   buildlist count=%d\n", (int)count_bl);
+		for (j=0; j<count_bl; j++)
 		{
 			pBuildList = newInstance( BuildListInfo );
 			pBuildList->setBuildingName(file.readAsciiString());
@@ -288,14 +295,17 @@ Bool SidesList::ParseSidesDataChunk(DataChunkInput &file, DataChunkInfo *info, v
 	if (info->version >= K_SIDES_DATA_VERSION_2)
 	{
 		count = file.readInt();
+		printf("DEBUG-SIDES: count of teams=%d\n", (int)count);
 		TheSidesList->emptyTeams();
 		for (i=0; i<count; i++)
 		{
+			printf("DEBUG-SIDES: Parsing team i=%d\n", (int)i);
 			Dict d =  file.readDict();
 			TheSidesList->addTeam(&d);
 		}
 	}
 
+	printf("DEBUG-SIDES: registering PlayerScriptsList parser and calling file.parse()\n");
 	file.registerParser( "PlayerScriptsList", info->label, ScriptList::ParseScriptsDataChunk );
 	if (!file.parse(nullptr)) {
 		throw(ERROR_CORRUPT_FILE_FORMAT);

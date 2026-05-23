@@ -564,6 +564,72 @@ void MainMenuInit( WindowLayout *layout, void *userData )
 //	TheShell->registerWithAnimateManager(buttonOptions, WIN_ANIMATION_SLIDE_LEFT, TRUE, 1);
 //	TheShell->registerWithAnimateManager(buttonExit, WIN_ANIMATION_SLIDE_RIGHT, TRUE, 1);
 //
+	if (buttonSinglePlayer) {
+		Int x = 0, y = 0, w = 0, h = 0;
+		buttonSinglePlayer->winGetScreenPosition(&x, &y);
+		buttonSinglePlayer->winGetSize(&w, &h);
+		fprintf(stderr, "GX-TRACE: buttonSinglePlayer pos=(%d, %d) size=(%d, %d)\n", x, y, w, h);
+	}
+	if (buttonMultiPlayer) {
+		Int x = 0, y = 0, w = 0, h = 0;
+		buttonMultiPlayer->winGetScreenPosition(&x, &y);
+		buttonMultiPlayer->winGetSize(&w, &h);
+		fprintf(stderr, "GX-TRACE: buttonMultiPlayer pos=(%d, %d) size=(%d, %d)\n", x, y, w, h);
+	}
+	if (buttonSkirmish) {
+		Int x = 0, y = 0, w = 0, h = 0;
+		buttonSkirmish->winGetScreenPosition(&x, &y);
+		buttonSkirmish->winGetSize(&w, &h);
+		fprintf(stderr, "GX-TRACE: buttonSkirmish pos=(%d, %d) size=(%d, %d)\n", x, y, w, h);
+	}
+	if (buttonOptions) {
+		Int x = 0, y = 0, w = 0, h = 0;
+		buttonOptions->winGetScreenPosition(&x, &y);
+		buttonOptions->winGetSize(&w, &h);
+		fprintf(stderr, "GX-TRACE: buttonOptions pos=(%d, %d) size=(%d, %d)\n", x, y, w, h);
+	}
+	if (buttonUSA) {
+		Int x = 0, y = 0, w = 0, h = 0;
+		buttonUSA->winGetScreenPosition(&x, &y);
+		buttonUSA->winGetSize(&w, &h);
+		fprintf(stderr, "GX-TRACE: buttonUSA pos=(%d, %d) size=(%d, %d)\n", x, y, w, h);
+	}
+	if (buttonGLA) {
+		Int x = 0, y = 0, w = 0, h = 0;
+		buttonGLA->winGetScreenPosition(&x, &y);
+		buttonGLA->winGetSize(&w, &h);
+		fprintf(stderr, "GX-TRACE: buttonGLA pos=(%d, %d) size=(%d, %d)\n", x, y, w, h);
+	}
+	if (buttonChina) {
+		Int x = 0, y = 0, w = 0, h = 0;
+		buttonChina->winGetScreenPosition(&x, &y);
+		buttonChina->winGetSize(&w, &h);
+		fprintf(stderr, "GX-TRACE: buttonChina pos=(%d, %d) size=(%d, %d)\n", x, y, w, h);
+	}
+	if (buttonChallenge) {
+		Int x = 0, y = 0, w = 0, h = 0;
+		buttonChallenge->winGetScreenPosition(&x, &y);
+		buttonChallenge->winGetSize(&w, &h);
+		fprintf(stderr, "GX-TRACE: buttonChallenge pos=(%d, %d) size=(%d, %d)\n", x, y, w, h);
+	}
+	if (buttonEasy) {
+		Int x = 0, y = 0, w = 0, h = 0;
+		buttonEasy->winGetScreenPosition(&x, &y);
+		buttonEasy->winGetSize(&w, &h);
+		fprintf(stderr, "GX-TRACE: buttonEasy pos=(%d, %d) size=(%d, %d)\n", x, y, w, h);
+	}
+	if (buttonMedium) {
+		Int x = 0, y = 0, w = 0, h = 0;
+		buttonMedium->winGetScreenPosition(&x, &y);
+		buttonMedium->winGetSize(&w, &h);
+		fprintf(stderr, "GX-TRACE: buttonMedium pos=(%d, %d) size=(%d, %d)\n", x, y, w, h);
+	}
+	if (buttonHard) {
+		Int x = 0, y = 0, w = 0, h = 0;
+		buttonHard->winGetScreenPosition(&x, &y);
+		buttonHard->winGetSize(&w, &h);
+		fprintf(stderr, "GX-TRACE: buttonHard pos=(%d, %d) size=(%d, %d)\n", x, y, w, h);
+	}
 	layout->hide( FALSE );
 
 	/*
@@ -785,6 +851,13 @@ void ResolutionDialogUpdate()
 void DownloadMenuUpdate( WindowLayout *layout, void *userData );
 void MainMenuUpdate( WindowLayout *layout, void *userData )
 {
+	static int mainEntrySpam = 0;
+	if (mainEntrySpam++ % 30 == 0)
+	{
+		fprintf(stderr, "GX-TRACE: MainMenuUpdate entered! count=%d, isInGame=%d, isInShellGame=%d\n",
+			mainEntrySpam, (int)TheGameLogic->isInGame(), (int)TheGameLogic->isInShellGame());
+	}
+
 	if( TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() )
 	{
 		return;
@@ -819,8 +892,17 @@ void MainMenuUpdate( WindowLayout *layout, void *userData )
 			initialGadgetDelay--;
 	}
 
+	static int mainSpamCounter = 0;
+	if (dontAllowTransitions && (mainSpamCounter++ % 30 == 0))
+	{
+		fprintf(stderr, "GX-TRACE: MainMenuUpdate: dontAllowTransitions=%d, transitionsFinished=%d, activeGroup='%s'\n",
+			(int)dontAllowTransitions, (int)TheTransitionHandler->isFinished(), TheTransitionHandler->getCurrentGroupName().str());
+	}
 	if(dontAllowTransitions && TheTransitionHandler->isFinished())
+	{
+		fprintf(stderr, "GX-TRACE: MainMenuUpdate: Clearing dontAllowTransitions!\n");
 		dontAllowTransitions = FALSE;
+	}
 
 	if(showLogo && dontAllowTransitions == FALSE)
 	{
@@ -1390,6 +1472,7 @@ WindowMsgHandledType MainMenuSystem( GameWindow *window, UnsignedInt msg,
 			}
 			else if( controlID == skirmishID )
 			{
+				fprintf(stderr, "GX-TRACE: skirmishID clicked! campaignSelected=%d, dontAllowTransitions=%d\n", (int)campaignSelected, (int)dontAllowTransitions);
 				if(campaignSelected || dontAllowTransitions)
 					break;
 				buttonPushed = TRUE;

@@ -76,32 +76,24 @@ WEB_SHELL="/Users/builduser/GeneralsX-build/GeneralsX/GeneralsMD/Code/Main/web_s
 COMMON_LINK_FLAGS=(
     -sUSE_WEBGL2=1 -sFULL_ES3=1
     -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2
-    -sINITIAL_MEMORY=268435456 -sALLOW_MEMORY_GROWTH=1
-    -sMAXIMUM_MEMORY=536870912
+    -sINITIAL_MEMORY=1073741824 -sALLOW_MEMORY_GROWTH=1
+    -sMAXIMUM_MEMORY=2147483648
+    -sSTACK_SIZE=4194304
     -sFETCH=1 -sASYNCIFY=1 -sASYNCIFY_STACK_SIZE=8388608
     -fexceptions -sDISABLE_EXCEPTION_CATCHING=0
     -sFORCE_FILESYSTEM=1 -sEXIT_RUNTIME=0
     -sWASM=1 -sENVIRONMENT=web
     -s USE_SDL=2
-    -sEXPORTED_FUNCTIONS=_main,_EmscriptenInput_OnPointerLockChange,_GX_FlushIdbfs_Tab,_GX_OnCanvasResize
+    -lidbfs.js
+    -sEXPORTED_FUNCTIONS=_main,_EmscriptenInput_OnPointerLockChange,_GX_FlushIdbfs_Tab,_GX_OnCanvasResize,_AIL_trigger_sample_eos,_GX_Network_EnableVirtual,_GX_Network_PushPacket,_GX_Network_SetVirtualIP,_malloc,_free
     --shell-file "${WEB_SHELL}"
 )
 
 if [ "${MODE}" = "release" ]; then
-    # Distribution profile — optimisation, no debug symbols, no
-    # safety/assertion overhead, minified JS via Closure. Asyncify is still on
-    # because it's a structural dep (engine relies on emscripten_sleep) — we
-    # just turn off SAFE_HEAP / ASSERTIONS / DEMANGLE which were diagnostic.
-    #
-    # `allocate,ALLOC_NORMAL,intArrayFromString` are the legacy Emscripten
-    # allocator helpers; SDL2's SDL_assert.c emits an EM_ASM block that uses
-    # them, and Closure ADVANCED_OPTIMIZATIONS errors out when it sees those
-    # names without a declaration. Adding them to EXPORTED_RUNTIME_METHODS
-    # keeps them defined and visible to the closure pass.
+    # Distribution profile
     FLAGS=( -O3 -DNDEBUG )
     LINK_FLAGS=(
         -O3
-        -sASSERTIONS=0
         --closure 1
         -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,FS,UTF8ToString,allocate,ALLOC_NORMAL,intArrayFromString
         "${COMMON_LINK_FLAGS[@]}"
@@ -136,6 +128,7 @@ LINK_LIBRARIES=(
     "libliblzhl.a"
     "Core/Libraries/Source/Compression/liblibzlib.a"
     "libgamespy.a"
+    "GeneralsMD/Code/Libraries/Source/WWVegas/WWAudio/libwwaudio.a"
     "libmilesstub.a"
     "libbinkstub.a"
 )

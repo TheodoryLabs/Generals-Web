@@ -47,7 +47,7 @@ CachedFileInputStream::~CachedFileInputStream()
 	m_buffer=nullptr;
 }
 
-Bool CachedFileInputStream::open(AsciiString path)
+Bool CachedFileInputStream::open(const AsciiString& path)
 {
 	File *file=TheFileSystem->openFile(path.str(), File::READ | File::BINARY);
 	m_size = 0;
