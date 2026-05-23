@@ -806,7 +806,7 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
             pCaps->MaxTextureBlendStages   = 8;
             pCaps->TextureOpCaps       = 0x03FFFFFF; // support all common tex ops
             pCaps->RasterCaps          = D3DPRASTERCAPS_FOGTABLE | D3DPRASTERCAPS_FOGVERTEX |
-                                         D3DPRASTERCAPS_ZBIAS   | D3DPRASTERCAPS_WFOG;
+                                         D3DPRASTERCAPS_WFOG;
             pCaps->SrcBlendCaps        = 0x00003FFF;
             pCaps->DestBlendCaps       = 0x00003FFF;
             pCaps->TextureCaps         = D3DPTEXTURECAPS_PROJECTED | D3DPTEXTURECAPS_CUBEMAP;
@@ -1287,7 +1287,7 @@ struct Emscripten_IDirect3D8 : public IDirect3D8 {
             pCaps->MaxTextureBlendStages   = 8;
             pCaps->TextureOpCaps       = 0x03FFFFFF;
             pCaps->RasterCaps          = D3DPRASTERCAPS_FOGTABLE | D3DPRASTERCAPS_FOGVERTEX |
-                                         D3DPRASTERCAPS_ZBIAS   | D3DPRASTERCAPS_WFOG;
+                                         D3DPRASTERCAPS_WFOG;
             pCaps->SrcBlendCaps        = 0x00003FFF;
             pCaps->DestBlendCaps       = 0x00003FFF;
             pCaps->TextureCaps         = D3DPTEXTURECAPS_PROJECTED | D3DPTEXTURECAPS_CUBEMAP;
