@@ -270,9 +270,31 @@ EM_JS(void, AILBridge_init, (), {
                 let totalSize = riffSize + 8;
                 console.log("[AILBridge] setSampleFile: riffSize =", riffSize, "totalSize =", totalSize);
                 
-                let bytes = new Uint8Array(HEAPU8.buffer, file_ptr, totalSize).slice();
+                // WebPort: Detect if this is a dummy WAV header wrapping an MP3/Ogg payload.
+                // If the first 4 bytes are "RIFF" and bytes 8..11 are "WAVE", check if the payload
+                // starting at offset 44 has compressed audio magic numbers (MP3 sync frames or OggS).
+                let isCompressed = false;
+                if (totalSize > 44) {
+                    let byte44 = HEAPU8[file_ptr + 44];
+                    let byte45 = HEAPU8[file_ptr + 45];
+                    let byte46 = HEAPU8[file_ptr + 46];
+                    let isMP3 = (byte44 === 0x49 && byte45 === 0x44 && byte46 === 0x33) || // ID3
+                                (byte44 === 0xFF && (byte45 & 0xE0) === 0xE0);             // MP3 Sync
+                    let isOgg = (byte44 === 0x4F && byte45 === 0x67 && byte46 === 0x67 && HEAPU8[file_ptr + 47] === 0x53); // OggS
+                    isCompressed = isMP3 || isOgg;
+                }
+
+                let audioBuffer;
+                if (isCompressed) {
+                    console.log("[AILBridge] Detected wrapped compressed audio. Peeling 44-byte WAV header.");
+                    let compressedBytes = new Uint8Array(HEAPU8.buffer, file_ptr + 44, totalSize - 44).slice();
+                    audioBuffer = compressedBytes.buffer;
+                } else {
+                    let bytes = new Uint8Array(HEAPU8.buffer, file_ptr, totalSize).slice();
+                    audioBuffer = bytes.buffer;
+                }
                 
-                this.audioContext.decodeAudioData(bytes.buffer, (buffer) => {
+                this.audioContext.decodeAudioData(audioBuffer, (buffer) => {
                     console.log("[AILBridge] decodeAudioData success for sample id =", id, "duration =", buffer.duration);
                     s.buffer = buffer;
                     s.state = 'ready';

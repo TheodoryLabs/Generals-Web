@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+
+# Workspace root — set GX_BUILD_ROOT to your build workspace (contains build-web/, emsdk/, GeneralsX/).
+: "${GX_BUILD_ROOT:=$(pwd)}"
+
 # Recompile dx8wrapper.cpp standalone and replace its .o in libww3d2.a.
 # Flags lifted from build-web/build.ninja's
 # "build .../z_ww3d2.dir/dx8wrapper.cpp.o:" rule.
@@ -8,10 +12,10 @@
 
 set -euo pipefail
 
-EMSDK_DIR="/Users/builduser/GeneralsX-build/emsdk"
-BUILD_DIR="/Users/builduser/GeneralsX-build/build-web"
-GMD_WW3D2="/Users/builduser/GeneralsX-build/GeneralsX/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2"
-CORE_WW3D2="/Users/builduser/GeneralsX-build/GeneralsX/Core/Libraries/Source/WWVegas/WW3D2"
+EMSDK_DIR="${GX_BUILD_ROOT}/emsdk"
+BUILD_DIR="${GX_BUILD_ROOT}/build-web"
+GMD_WW3D2="${GX_BUILD_ROOT}/GeneralsX/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2"
+CORE_WW3D2="${GX_BUILD_ROOT}/GeneralsX/Core/Libraries/Source/WWVegas/WW3D2"
 OBJ_DIR_FLAT="${BUILD_DIR}/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/CMakeFiles/z_ww3d2.dir"
 OBJ_DIR_CORE="${OBJ_DIR_FLAT}/__/__/__/__/__/__/Core/Libraries/Source/WWVegas/WW3D2"
 ARCHIVE="${BUILD_DIR}/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/libww3d2.a"
@@ -35,7 +39,7 @@ export EM_CONFIG="${EMSDK_DIR}/.emscripten"
 DEFINES=(
     -DBUILD_STUBS -DDEBUG_CRASHING=1 -DDEBUG_LOGGING=1
     -DDISABLE_GAMEMEMORY=1 -DDISABLE_MEMORYPOOL_BOUNDINGWALL=1
-    -DDISABLE_MEMORYPOOL_CHECKPOINTING=1 -DDISABLE_MEMORYPOOL_MPSB_DLINK=1
+    -DDISABLE_MEMORYPOOL_CHECKPOINTING=1
     -DDISABLE_MEMORYPOOL_STACKTRACE=1 -DNDEBUG -DNO_BINK=1 -DNO_D3D8=1
     -DNO_DXVK=1 -DNO_GAMESPY=1 -DNO_MILES=1 -DNO_WIN32=1 -DPLATFORM_WEB=1
     -DRTS_RELEASE -DRTS_ZEROHOUR=1 -DWIN32_LEAN_AND_MEAN -D_UNIX
@@ -51,22 +55,22 @@ FLAGS=(
 
 INCLUDES=(
     -I"${BUILD_DIR}/Core/Libraries/Source/EABrowserEngine/.."
-    -I"/Users/builduser/GeneralsX-build/GeneralsX/Core/Libraries/Source/WWVegas/WWLib"
-    -I"/Users/builduser/GeneralsX-build/GeneralsX/GeneralsMD/Code/Libraries/Source/WWVegas"
-    -I"/Users/builduser/GeneralsX-build/GeneralsX/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2"
-    -I"/Users/builduser/GeneralsX-build/GeneralsX/Core/Libraries/Source/WWVegas"
-    -I"/Users/builduser/GeneralsX-build/GeneralsX/Core/Libraries/Source/WWVegas/WW3D2"
-    -I"/Users/builduser/GeneralsX-build/GeneralsX/Core/Libraries/Source/WWVegas/WWAudio"
-    -I"/Users/builduser/GeneralsX-build/GeneralsX/Core/Libraries/Source/WWVegas/WWDebug"
-    -I"/Users/builduser/GeneralsX-build/GeneralsX/Core/Libraries/Source/WWVegas/WWMath"
-    -I"/Users/builduser/GeneralsX-build/GeneralsX/Core/Libraries/Source/WWVegas/WWSaveLoad"
-    -I"/Users/builduser/GeneralsX-build/GeneralsX/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/emscripten_compat"
-    -I"/Users/builduser/GeneralsX-build/GeneralsX/GeneralsMD/Code/CompatLib/Include"
+    -I"${GX_BUILD_ROOT}/GeneralsX/Core/Libraries/Source/WWVegas/WWLib"
+    -I"${GX_BUILD_ROOT}/GeneralsX/GeneralsMD/Code/Libraries/Source/WWVegas"
+    -I"${GX_BUILD_ROOT}/GeneralsX/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2"
+    -I"${GX_BUILD_ROOT}/GeneralsX/Core/Libraries/Source/WWVegas"
+    -I"${GX_BUILD_ROOT}/GeneralsX/Core/Libraries/Source/WWVegas/WW3D2"
+    -I"${GX_BUILD_ROOT}/GeneralsX/Core/Libraries/Source/WWVegas/WWAudio"
+    -I"${GX_BUILD_ROOT}/GeneralsX/Core/Libraries/Source/WWVegas/WWDebug"
+    -I"${GX_BUILD_ROOT}/GeneralsX/Core/Libraries/Source/WWVegas/WWMath"
+    -I"${GX_BUILD_ROOT}/GeneralsX/Core/Libraries/Source/WWVegas/WWSaveLoad"
+    -I"${GX_BUILD_ROOT}/GeneralsX/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/emscripten_compat"
+    -I"${GX_BUILD_ROOT}/GeneralsX/GeneralsMD/Code/CompatLib/Include"
     -I"${BUILD_DIR}/_deps/miles-src"
     -I"${BUILD_DIR}/_deps/miles-src/mss"
-    -I"/Users/builduser/GeneralsX-build/GeneralsX/Dependencies/Utility"
-    -I"/Users/builduser/GeneralsX-build/GeneralsX/Core/Libraries/Include"
-    -I"/Users/builduser/GeneralsX-build/GeneralsX/resources/gitinfo"
+    -I"${GX_BUILD_ROOT}/GeneralsX/Dependencies/Utility"
+    -I"${GX_BUILD_ROOT}/GeneralsX/Core/Libraries/Include"
+    -I"${GX_BUILD_ROOT}/GeneralsX/resources/gitinfo"
 )
 
 cd "${BUILD_DIR}"

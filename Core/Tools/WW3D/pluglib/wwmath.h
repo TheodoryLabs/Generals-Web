@@ -207,6 +207,8 @@ inline long WWMath::Float_To_Long	(float f)
 	__asm fld	dword ptr [f]
 	__asm fistp dword ptr [retval]
 	return retval;
+#elif defined(__EMSCRIPTEN__)
+	return lrintf(f);
 #else
 	return (long) f;
 #endif
@@ -219,6 +221,8 @@ inline long WWMath::Float_To_Long	(double f)
 	__asm fld	qword ptr [f]
 	__asm fistp dword ptr [retval]
 	return retval;
+#elif defined(__EMSCRIPTEN__)
+	return lrint(f);
 #else
 	return (long) f;
 #endif

@@ -51,7 +51,7 @@ double Now_Ms() {
 }
 
 void Yield_Ms(int ms) {
-    emscripten_sleep(ms);
+    // No-op to avoid Asyncify dependency
 }
 
 } // namespace WebTiming
@@ -179,12 +179,11 @@ void Run_Loading_Phase(LoadStartCallback load_func,
                         LoadReadyCallback ready_func) {
     if (load_func) load_func();
 
-    // Poll until loading is ready, yielding to browser each iteration
+    // Non-yielding poll if needed (Run_Loading_Phase is not actively called in game loop)
     while (ready_func && !ready_func()) {
         if (g_Loop.loading_callback) {
             g_Loop.loading_callback(0.5f, "Loading game assets...");
         }
-        emscripten_sleep(16);  // ~60fps yield
     }
 }
 

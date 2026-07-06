@@ -52,12 +52,14 @@ layout(location = 3) in vec2 a_TexCoord0;
 layout(location = 4) in vec2 a_TexCoord1;
 layout(location = 5) in vec2 a_TexCoord2;
 layout(location = 6) in vec2 a_TexCoord3;
+layout(location = 7) in mat4 a_InstanceWorld; // Instanced matrix layout locations 7, 8, 9, 10
 
 // Transform matrices
 uniform mat4 u_World;
 uniform mat4 u_View;
 uniform mat4 u_Projection;
 uniform mat4 u_TexMatrix0;
+uniform bool u_InstancingEnabled;
 
 // Material
 uniform vec4 u_MatDiffuse;
@@ -101,8 +103,12 @@ out vec2 v_TexCoord3;
 out float v_FogFactor;
 
 void main() {
+    mat4 worldMat = u_World;
+    if (u_InstancingEnabled) {
+        worldMat = a_InstanceWorld;
+    }
     // Transform position through World * View * Projection
-    vec4 worldPos = u_World * vec4(a_Position, 1.0);
+    vec4 worldPos = worldMat * vec4(a_Position, 1.0);
     vec4 viewPos = u_View * worldPos;
     gl_Position = u_Projection * viewPos;
     // Map D3D projection depth [0, w] to OpenGL ES clip space depth [-w, w]
@@ -122,7 +128,7 @@ void main() {
 
     // Compute lighting
     if (u_LightingEnabled) {
-        mat3 worldNormalMatrix = mat3(u_World);
+        mat3 worldNormalMatrix = mat3(worldMat);
         vec3 worldNormal = normalize(worldNormalMatrix * a_Normal);
 
         // Start with emissive material color

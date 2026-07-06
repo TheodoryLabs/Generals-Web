@@ -17,7 +17,7 @@ None at the moment. Black-canvas was fixed in Session 12 (see Solved Issues).
 - Distributed copy in `GeneralsX/dist/GeneralsZH.{html,js,wasm}` — Apr 7 2026 16:49
   (older, predates Session 5+ edits)
 
-The link errors documented in `/Users/builduser/GeneralsX-build/build.log` (Mar 13 2026) and `build_error.log` (Mar 10 2026) are **stale** — they predate the Session 4 fixes that landed on Mar 15 (and the Mar 31 build that succeeded). When picking up the project, always re-run the build before treating those logs as live.
+The link errors documented in `<build-root>/build.log` (Mar 13 2026) and `build_error.log` (Mar 10 2026) are **stale** — they predate the Session 4 fixes that landed on Mar 15 (and the Mar 31 build that succeeded). When picking up the project, always re-run the build before treating those logs as live.
 
 ## Latent / Watch
 - **POOL-DOUBLE-FREE** — masked by `DISABLE_GAMEMEMORY` (web.cmake forces `RTS_GAMEMEMORY_ENABLE=OFF`). All allocations go through `malloc`/`free`. Root cause was never identified; a future investigation would need the callstack `freeSingleBlock()` prints right before it skips the offending free.
@@ -69,7 +69,7 @@ The link errors documented in `/Users/builduser/GeneralsX-build/build.log` (Mar 
 - **Fix**: added `EmscriptenInput.cpp.o` to `MAIN_OBJS` with a comment explaining that it's not bundled into any `.a` so it must be passed directly. Confirmed link succeeds.
 
 ### Stale build.log triage (May 4 2026)
-- The build error log under `/Users/builduser/GeneralsX-build/build.log` reports `undefined symbol: TheMessageTime / ApplicationHInstance / c_dfDIKeyboard`. This is from a Mar 13 2026 ninja run, before the Session 4 stub additions. Verified the post-fix .o files and confirmed:
+- The build error log under `<build-root>/build.log` reports `undefined symbol: TheMessageTime / ApplicationHInstance / c_dfDIKeyboard`. This is from a Mar 13 2026 ninja run, before the Session 4 stub additions. Verified the post-fix .o files and confirmed:
   - `LinuxStubs.cpp.o` defines `TheMessageTime`, `ApplicationHInstance`, `TheWin32Mouse` in `.bss.*` sections.
   - `EmscriptenInput.cpp.o` defines `c_dfDIKeyboard` in `.bss.c_dfDIKeyboard`.
   Both .o files are in the link line and the Mar 31 build linked them successfully.

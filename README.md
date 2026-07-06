@@ -156,7 +156,7 @@ The original game uses DirectX 8's **fixed-function pipeline** — a legacy grap
 | 3 | Mar 15, 2026 | Memory system, SDL2 input bridge, platform stubs, GameSpy disabled |
 | 4 | Mar 16, 2026 | Linker/ODR hardening, nuclear memory option, GameMemoryNull completion |
 
-Full session-by-session details in [`docs/web-port/PORTING_LOG.md`](docs/web-port/PORTING_LOG.md).
+Full session-by-session details in [`porting-log.md`](../porting-log.md).
 
 ---
 

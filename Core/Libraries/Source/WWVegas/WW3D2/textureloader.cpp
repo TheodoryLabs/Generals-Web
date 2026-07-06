@@ -935,7 +935,8 @@ void LoaderThreadClass::Thread_Function() {
 TextureLoadTaskClass::TextureLoadTaskClass()
     : Texture(nullptr), D3DTexture(nullptr), Format(WW3D_FORMAT_UNKNOWN),
       Width(0), Height(0), MipLevelCount(0), Reduction(0), Type(TASK_NONE),
-      Priority(PRIORITY_LOW), State(STATE_NONE), HSVShift(0.0f, 0.0f, 0.0f) {
+      Priority(PRIORITY_LOW), State(STATE_NONE), HSVShift(0.0f, 0.0f, 0.0f),
+      IsDDSLoad(false) {
   // because texture load tasks are pooled, the constructor and destructor
   // don't need to do much. The work of attaching a task to a texture is
   // is done by Init() and Deinit().
@@ -1024,6 +1025,7 @@ void TextureLoadTaskClass::Init(TextureBaseClass *tc, TaskType type,
   Type = type;
   Priority = priority;
   State = STATE_NONE;
+  IsDDSLoad = false;
 
   D3DTexture = nullptr;
 
@@ -1094,10 +1096,9 @@ bool TextureLoadTaskClass::Begin_Load() {
 
   bool loaded = false;
 
-  // if allowed, begin a compressed load
-  if (Texture->Is_Compression_Allowed()) {
-    loaded = Begin_Compressed_Load();
-  }
+  // WebPort: Always check for a compressed .dds file first, even if compression is not normally allowed.
+  // This lets us replace heavy TGAs (like UI backdrops) on the server with DDS files transparently.
+  loaded = Begin_Compressed_Load();
 
   // otherwise, begin an uncompressed load
   if (!loaded) {
@@ -1130,8 +1131,8 @@ bool TextureLoadTaskClass::Load() {
 
   bool loaded = false;
 
-  // if allowed, try to load compressed mipmaps
-  if (Texture->Is_Compression_Allowed()) {
+  // if allowed or we loaded a DDS, try to load compressed mipmaps
+  if (Texture->Is_Compression_Allowed() || IsDDSLoad) {
     loaded = Load_Compressed_Mipmap();
   }
 
@@ -1311,6 +1312,8 @@ bool TextureLoadTaskClass::Begin_Compressed_Load() {
                                true)) {
     return false;
   }
+
+  IsDDSLoad = true;
 
   // Destination size will be the next power of two square from the larger width
   // and height...

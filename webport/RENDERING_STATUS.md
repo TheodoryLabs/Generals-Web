@@ -96,7 +96,7 @@ See `BUILD_INSTRUCTIONS.md` for full details.
 A FULL rebuild via `ninja` is required — `link_mac.sh` only re-links and will NOT compile new/changed files.**
 
 ```bash
-cd /Users/builduser/GeneralsX-build/build-web
+cd <build-root>/build-web
 ninja                     # full recompile + link (10–20 min)
 ```
 

@@ -608,11 +608,6 @@ inline void MemoryPoolSingleBlock::setNextFreeBlock(MemoryPoolSingleBlock *b) {
   //  initialized.
   DEBUG_ASSERTCRASH(m_owningBlob != nullptr, ("must be called on blob block"));
   this->m_nextBlock = b;
-#ifdef MPSB_DLINK
-  if (b) {
-    b->m_prevBlock = this;
-  }
-#endif
 }
 
 /**
@@ -1312,14 +1307,41 @@ void MemoryPoolBlob::freeSingleBlock(MemoryPoolSingleBlock *block) {
   DEBUG_ASSERTCRASH(block->getOwningBlob() == this,
                     ("block does not belong to this blob"));
 
-  // Double-free detection: every allocated block has m_nextBlock set to
-  // 0xDEADF00D by allocateSingleBlock.  If that sentinel is gone, this block
-  // was either never properly allocated or is being freed a second time.
   if (block->getNextFreeBlock() != (MemoryPoolSingleBlock *)0xDEADF00DUL) {
+#if defined(__EMSCRIPTEN__)
+    static int s_doubleFreeLogCount = 0;
+    if (s_doubleFreeLogCount < 20) {
+      s_doubleFreeLogCount++;
+      const unsigned char *ud = (const unsigned char *)block->getUserData();
+      fprintf(stderr,
+              "POOL-DOUBLE-FREE pool=%s userdata=%p next=%p usedInBlob=%d\n"
+              "  raw[0..15]: %02x %02x %02x %02x  %02x %02x %02x %02x  %02x %02x %02x %02x  %02x %02x %02x %02x\n"
+              "  as-StringClass  (skip 8B hdr): '%.24s'\n"
+              "  as-AsciiString  (skip 4B hdr): '%.24s'\n",
+              m_owningPool->getPoolName(),
+              block->getUserData(),
+              (void *)block->getNextFreeBlock(),
+              m_usedBlocksInBlob,
+              ud[0],ud[1],ud[2],ud[3], ud[4],ud[5],ud[6],ud[7],
+              ud[8],ud[9],ud[10],ud[11], ud[12],ud[13],ud[14],ud[15],
+              (const char *)(ud + 8),
+              (const char *)(ud + 4));
+      fflush(stderr);
+      char callstack_buf[4096];
+      emscripten_get_callstack(EM_LOG_C_STACK | EM_LOG_JS_STACK | EM_LOG_NO_PATHS,
+                               callstack_buf, sizeof(callstack_buf));
+      fprintf(stderr, "POOL-DOUBLE-FREE callstack:\n%s\n", callstack_buf);
+      fflush(stderr);
+      fprintf(stderr, "POOL-DOUBLE-FREE: skipping free and continuing (block leaked)\n");
+      fflush(stderr);
+    } else if (s_doubleFreeLogCount == 20) {
+      s_doubleFreeLogCount++;
+      fprintf(stderr, "POOL-DOUBLE-FREE: reached limit of 20 stack traces, suppressing further traces\n");
+      fflush(stderr);
+    }
+    return;
+#else
     const unsigned char *ud = (const unsigned char *)block->getUserData();
-    // Print raw bytes so we can identify the string class and content:
-    //   StringClass: _HEADER(8B) = {allocated_length, length}, then string data at ud+8
-    //   AsciiString: AsciiStringData(4B) = {m_refCount(2B), m_numCharsAllocated(2B)}, then string data at ud+4
     fprintf(stderr,
             "POOL-DOUBLE-FREE pool=%s userdata=%p next=%p usedInBlob=%d\n"
             "  raw[0..15]: %02x %02x %02x %02x  %02x %02x %02x %02x  %02x %02x %02x %02x  %02x %02x %02x %02x\n"
@@ -1334,24 +1356,6 @@ void MemoryPoolBlob::freeSingleBlock(MemoryPoolSingleBlock *block) {
             (const char *)(ud + 8),
             (const char *)(ud + 4));
     fflush(stderr);
-#if defined(__EMSCRIPTEN__)
-    // Print a human-readable JS/WASM stack trace so the double-free call site
-    // is visible in the browser log without having to correlate WASM offsets.
-    {
-      char callstack_buf[4096];
-      emscripten_get_callstack(EM_LOG_C_STACK | EM_LOG_JS_STACK | EM_LOG_NO_PATHS,
-                               callstack_buf, sizeof(callstack_buf));
-      fprintf(stderr, "POOL-DOUBLE-FREE callstack:\n%s\n", callstack_buf);
-      fflush(stderr);
-    }
-    // GeneralsX @fix WebPort 15/03/2026 — Do NOT abort on double-free.
-    // Skip the free and let the game continue.  The block leaks (never returned
-    // to the free list), but this is far better than crashing at startup.
-    // The callstack printed above identifies the root cause for a proper fix.
-    fprintf(stderr, "POOL-DOUBLE-FREE: skipping free and continuing (block leaked)\n");
-    fflush(stderr);
-    return;
-#else
     abort();
 #endif
   }

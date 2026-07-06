@@ -2462,6 +2462,20 @@ void DX8Wrapper::Draw_Triangles(unsigned short start_index,
        vertex_count);
 }
 
+void DX8Wrapper::Draw_Triangles_Instanced(unsigned short start_index,
+                                          unsigned short polygon_count,
+                                          unsigned short min_vertex_index,
+                                          unsigned short vertex_count,
+                                          const float* world_matrices,
+                                          unsigned int instance_count) {
+  DX8_THREAD_ASSERT();
+  Apply_Render_State_Changes();
+#ifdef __EMSCRIPTEN__
+  GLES3_Draw_Triangles_Instanced(GLES3_PT_TRIANGLELIST, start_index, polygon_count, min_vertex_index, vertex_count, world_matrices, instance_count);
+#endif
+}
+
+
 // ----------------------------------------------------------------------------
 //
 //

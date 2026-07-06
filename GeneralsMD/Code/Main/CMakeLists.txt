@@ -86,29 +86,41 @@ if(EMSCRIPTEN)
         ${CMAKE_CURRENT_SOURCE_DIR}/../CompatLib/Include
     )
     
+    # GeneralsX @build WebPort 2026-07-06 — flags aligned to the last known-good
+    # link line (link_mac.sh debug profile, 2026-05-24) so a clean CMake build
+    # reproduces the .o-surgery era binary: SAFE_HEAP=0 (session 7700f1f),
+    # EXIT_RUNTIME=0, 1GB/2GB heap + 4MB stack, idbfs, and the full 12-symbol
+    # export list (virtual mouse getters, audio EOS callback, virtual network).
     set(EMSCRIPTEN_ASYNC_FLAGS
-        # "-sASYNCIFY=1"
-        # "-sASYNCIFY_STACK_SIZE=65536"
-        # "-sASYNCIFY_IGNORE_INDIRECT=1"
-        # "-sASYNCIFY_IMPORTS=['invoke_vi','invoke_ii','invoke_iii','invoke_v']"
         "-O0"
         "-g3"
+        "-sSAFE_HEAP=0"
         "-sASSERTIONS=2"
-        "-sEXIT_RUNTIME=1"
-        "-sDEMANGLE_SUPPORT=1"
+        "-sEXIT_RUNTIME=0"
         "-sUSE_SDL=2"
         "-sUSE_SDL_IMAGE=2"
         "-sUSE_WEBGL2=1"
         "-sFULL_ES3=1"
+        "-sMIN_WEBGL_VERSION=2"
+        "-sMAX_WEBGL_VERSION=2"
         "-sALLOW_MEMORY_GROWTH=1"
-        "-sINITIAL_MEMORY=536870912"
-        "-sMAXIMUM_MEMORY=4294967296"
+        # Emscripten 6.x defaults memory growth to JS resizable ArrayBuffers;
+        # Chrome's WebGL rejects resizable-backed views in texImage2D
+        # ("ArrayBufferView value must not be resizable"). Keep the classic
+        # replace-the-buffer growth strategy. GeneralsX @build WebPort 2026-07-06
+        "-sGROWABLE_ARRAYBUFFERS=0"
+        "-sINITIAL_MEMORY=1073741824"
+        "-sMAXIMUM_MEMORY=2147483648"
+        "-sSTACK_SIZE=4194304"
+        "-sFETCH=1"
+        "-sASYNCIFY=0"
+        "-sFORCE_FILESYSTEM=1"
+        "-sENVIRONMENT=web"
+        "-lidbfs.js"
         "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS','printErr','addFunction','noExitRuntime','UTF8ToString']"
         # JS-callable C entry points. EMSCRIPTEN_KEEPALIVE attributes alone
-        # *should* be enough, but with ASYNCIFY=1 the linker can sometimes
-        # garbage-collect KEEPALIVE symbols anyway. Listing them explicitly
-        # is defensive.
-        "-sEXPORTED_FUNCTIONS=['_main','_EmscriptenInput_OnPointerLockChange','_GX_FlushIdbfs_Tab','_GX_OnCanvasResize']"
+        # *should* be enough, but listing them explicitly is defensive.
+        "-sEXPORTED_FUNCTIONS=['_main','_EmscriptenInput_OnPointerLockChange','_EmscriptenInput_GetVirtualMouseX','_EmscriptenInput_GetVirtualMouseY','_GX_FlushIdbfs_Tab','_GX_OnCanvasResize','_AIL_trigger_sample_eos','_GX_Network_EnableVirtual','_GX_Network_PushPacket','_GX_Network_SetVirtualIP','_malloc','_free']"
         "-sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=['$registerPointerlockErrorEventCallback']"
     )
 
@@ -123,6 +135,22 @@ if(EMSCRIPTEN)
 
     target_link_options(z_generals PRIVATE ${EMSCRIPTEN_ASYNC_FLAGS})
     target_compile_options(z_generals PRIVATE "-sUSE_SDL=2")
+
+    # NOTE: the May-24 hand-built link (link_mac.sh) included libwwaudio.a from
+    # the compile-script pipeline — WWAudio has no CMakeLists and is not in the
+    # CMake graph yet (tracked as an open issue). The only WWAudio symbol the
+    # web target actually demands is WWAudioThreadsClass::Tick_Delayed_Release_
+    # Objects() (single-threaded delayed-release drain, called per frame from
+    # EmscriptenMain), so compile that one TU directly into the target — the
+    # archive link would have pulled exactly this object anyway.
+    # GeneralsX @build WebPort 2026-07-06
+    target_sources(z_generals PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../Core/Libraries/Source/WWVegas/WWAudio/Threads.cpp
+    )
+    target_include_directories(z_generals PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../Core/Libraries/Source/WWVegas/WWAudio
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../Core/Libraries/Source/WWVegas
+    )
 endif()
 
 target_sources(z_generals PRIVATE

@@ -1752,7 +1752,105 @@ void DX8TextureCategoryClass::Render()
 			continue;
 		}
 
+		// Instancing Batching Emulation check
+		bool is_sorting = (!!mesh->Peek_Model()->Get_Flag(MeshGeometryClass::SORT)) && WW3D::Is_Sorting_Enabled();
+		bool can_instance = !is_sorting && !renderer->Is_Strip() && (mesh->Get_Alpha_Override() == 1.0f) && !mesh->Is_Additive() && (!mesh->Get_User_Data()) && (!DX8RendererDebugger::Is_Enabled() || !mesh->Is_Disabled_By_Debugger());
+
+		if (can_instance) {
+			int batch_count = 1;
+			PolyRenderTaskClass* batch_tasks[128];
+			batch_tasks[0] = prt;
+
+			PolyRenderTaskClass* lookahead = prt->Get_Next_Visible();
+			while (lookahead && batch_count < 128) {
+				DX8PolygonRendererClass* next_renderer = lookahead->Peek_Polygon_Renderer();
+				MeshClass* next_mesh = lookahead->Peek_Mesh();
+
+				if (next_mesh->Get_Base_Vertex_Offset() != VERTEX_BUFFER_OVERFLOW &&
+					next_renderer == renderer &&
+					next_mesh->Get_Alpha_Override() == 1.0f &&
+					!next_mesh->Is_Additive() &&
+					!next_mesh->Get_User_Data() &&
+					next_mesh->Get_ObjectScale() == mesh->Get_ObjectScale() &&
+					next_mesh->Get_Lighting_Environment() == mesh->Get_Lighting_Environment() &&
+					(!DX8RendererDebugger::Is_Enabled() || !next_mesh->Is_Disabled_By_Debugger())) {
+
+					batch_tasks[batch_count++] = lookahead;
+					lookahead = lookahead->Get_Next_Visible();
+				} else {
+					break;
+				}
+			}
+
+			if (batch_count > 1) {
+				// Prepare the world matrices
+				float world_matrices[128 * 16];
+				for (int b = 0; b < batch_count; ++b) {
+					MeshClass* b_mesh = batch_tasks[b]->Peek_Mesh();
+					const Matrix3D* world_transform = &b_mesh->Get_Transform();
+					Matrix3D tmp_world;
+
+					if (b_mesh->Peek_Model()->Get_Flag(MeshModelClass::ALIGNED)) {
+						Vector3 mesh_position;
+						Vector3 camera_z_vector;
+						TheDX8MeshRenderer.Peek_Camera()->Get_Transform().Get_Z_Vector(&camera_z_vector);
+						b_mesh->Get_Transform().Get_Translation(&mesh_position);
+						tmp_world.Obj_Look_At(mesh_position, mesh_position + camera_z_vector, 0.0f);
+						world_transform = &tmp_world;
+					} else if (b_mesh->Peek_Model()->Get_Flag(MeshModelClass::ORIENTED)) {
+						Vector3 mesh_position;
+						Vector3 camera_position;
+						TheDX8MeshRenderer.Peek_Camera()->Get_Transform().Get_Translation(&camera_position);
+						b_mesh->Get_Transform().Get_Translation(&mesh_position);
+						tmp_world.Obj_Look_At(mesh_position, camera_position, 0.0f);
+						world_transform = &tmp_world;
+					} else if (b_mesh->Peek_Model()->Get_Flag(MeshModelClass::SKIN)) {
+						tmp_world.Make_Identity();
+						world_transform = &tmp_world;
+					}
+
+					D3DMATRIX dxm = To_D3DMATRIX(*world_transform);
+					memcpy(world_matrices + b * 16, &dxm, 16 * sizeof(float));
+				}
+
+				// Set object scale normalize state (based on first mesh, since they are all identical)
+				if (mesh->Get_ObjectScale() != 1.0f) {
+					DX8Wrapper::Set_DX8_Render_State(D3DRS_NORMALIZENORMALS, TRUE);
+				}
+
+				// Setup light environment (based on first mesh)
+				LightEnvironmentClass* lenv = mesh->Get_Lighting_Environment();
+				if (lenv != nullptr) {
+					DX8Wrapper::Set_Light_Environment(lenv);
+				}
+
+				// Render
+				renderer->Render_Instanced(mesh->Get_Base_Vertex_Offset(), world_matrices, batch_count);
+
+				// Reset normalize normals if needed
+				if (mesh->Get_ObjectScale() != 1.0f) {
+					DX8Wrapper::Set_DX8_Render_State(D3DRS_NORMALIZENORMALS, FALSE);
+				}
+
+				// Cleanup the batched tasks from queue
+				for (int b = 0; b < batch_count; ++b) {
+					PolyRenderTaskClass* b_prt = batch_tasks[b];
+					PolyRenderTaskClass* next_p = b_prt->Get_Next_Visible();
+					if (last_prt == nullptr) {
+						render_task_head = next_p;
+					} else {
+						last_prt->Set_Next_Visible(next_p);
+					}
+					delete b_prt;
+				}
+
+				prt = (last_prt == nullptr) ? render_task_head : last_prt->Get_Next_Visible();
+				continue;
+			}
+		}
+
 		SNAPSHOT_SAY(("mesh = %s",mesh->Get_Name()));
+
 
 		#ifdef WWDEBUG
 		// Debug rendering: if it exists, expose prelighting on this mesh by disabling all base textures.

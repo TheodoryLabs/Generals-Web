@@ -66,6 +66,7 @@
 #if defined(__EMSCRIPTEN__)
 extern "C" bool Web_VFS_Read_File_Sync(const char *path, void **out_data,
                                        unsigned int *out_size);
+extern "C" void Web_VFS_Evict_File(const char *path);
 #endif
 
 //----------------------------------------------------------------------------
@@ -381,6 +382,19 @@ void LocalFile::closeWithoutDelete() {
 void LocalFile::closeFile() {
 #if USE_BUFFERED_IO
   if (m_file) {
+#if defined(__EMSCRIPTEN__)
+    const char* filename = getName();
+    if (filename) {
+      size_t len = strlen(filename);
+      if (len > 4) {
+        const char* ext = filename + len - 4;
+        if (strcasecmp(ext, ".w3d") == 0 || strcasecmp(ext, ".tga") == 0 || 
+            strcasecmp(ext, ".dds") == 0 || strcasecmp(ext, ".wav") == 0) {
+          Web_VFS_Evict_File(filename);
+        }
+      }
+    }
+#endif
     fclose(m_file);
     m_file = nullptr;
     --s_totalOpen;

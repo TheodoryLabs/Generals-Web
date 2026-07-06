@@ -281,6 +281,17 @@
         background: var(--gx-fg);
         color: var(--gx-bg);
       }
+      #gx-settings-toggle:hover {
+        background: var(--gx-mute) !important;
+        border-color: var(--gx-fg) !important;
+      }
+      #gx-settings-drawer.gx-show {
+        right: 16px !important;
+      }
+      #gx-btn-fullscreen:hover {
+        background: var(--gx-fg);
+        color: var(--gx-bg);
+      }
     </style>
   </head>
   <body>
@@ -312,51 +323,99 @@
       <div id="gx-toast-bar"><div id="gx-toast-fill"></div></div>
     </div>
 
+    <!-- Virtual cursor for pointer lock mode -->
+    <div id="gx-virtual-cursor" style="
+      position: fixed;
+      width: 24px;
+      height: 24px;
+      background-image: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2224%22 height=%2224%22 viewBox=%220 0 24 24%22><path d=%22M0,0 L0,16 L4,12 L8,20 L11,18.5 L7,10.5 L12,10.5 Z%22 fill=%22%23f0d27a%22 stroke=%22%23000%22 stroke-width=%221.5%22/></svg>');
+      background-size: contain;
+      pointer-events: none;
+      z-index: 9999;
+      display: none;
+    "></div>
+
+    <!-- Settings Gear Button -->
+    <button id="gx-settings-toggle" type="button" aria-label="Settings" style="
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      width: 36px;
+      height: 36px;
+      background: rgba(10, 10, 10, 0.7);
+      border: 1px solid var(--gx-mute);
+      color: var(--gx-fg);
+      cursor: pointer;
+      border-radius: 4px;
+      z-index: 8;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      transition: background-color 150ms, border-color 150ms;
+    ">⚙️</button>
+
+    <!-- Glassmorphic Settings Drawer -->
+    <div id="gx-settings-drawer" style="
+      position: fixed;
+      top: 64px;
+      right: -280px;
+      width: 260px;
+      background: rgba(10, 10, 10, 0.85);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid var(--gx-mute);
+      border-radius: 4px;
+      color: var(--gx-fg);
+      padding: 16px;
+      z-index: 8;
+      transition: right 250ms ease-out;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    ">
+      <div style="font-size: 13px; font-weight: bold; margin-bottom: 12px; letter-spacing: 2px; text-transform: uppercase; color: var(--gx-accent); border-bottom: 1px solid var(--gx-mute); padding-bottom: 6px;">Settings</div>
+      
+      <div style="margin-bottom: 14px;">
+        <label style="display: flex; align-items: center; cursor: pointer; font-size: 11px; letter-spacing: 1px;">
+          <input type="checkbox" id="gx-setting-lock-cursor" style="margin-right: 8px; accent-color: var(--gx-fg);">
+          LOCK CURSOR (LOCK MOUSE)
+        </label>
+        <div style="font-size: 9px; color: var(--gx-mute); margin-left: 20px; margin-top: 3px;">Confinement mode (press Esc to free)</div>
+      </div>
+
+      <div style="margin-bottom: 14px;">
+        <label style="display: flex; align-items: center; cursor: pointer; font-size: 11px; letter-spacing: 1px;">
+          <input type="checkbox" id="gx-setting-edge-scroll" style="margin-right: 8px; accent-color: var(--gx-fg);" checked>
+          EDGE SCROLLING
+        </label>
+        <div style="font-size: 9px; color: var(--gx-mute); margin-left: 20px; margin-top: 3px;">Pan camera at screen boundaries</div>
+      </div>
+
+      <div style="margin-bottom: 16px;" id="gx-setting-edge-zone-wrap">
+        <div style="display: flex; justify-content: space-between; font-size: 10px; letter-spacing: 1px; margin-bottom: 4px;">
+          <span>EDGE ZONE</span>
+          <span id="gx-setting-edge-zone-val">20px</span>
+        </div>
+        <input type="range" id="gx-setting-edge-zone" min="5" max="40" value="20" style="width: 100%; accent-color: var(--gx-fg); cursor: pointer;">
+      </div>
+
+      <button id="gx-btn-fullscreen" type="button" style="
+        width: 100%;
+        padding: 8px;
+        background: transparent;
+        color: var(--gx-fg);
+        border: 1px solid var(--gx-fg);
+        font-family: inherit;
+        font-size: 11px;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition: background-color 150ms, color 150ms;
+      ">Go Fullscreen</button>
+    </div>
+
     <pre id="gx-output"></pre>
 
     <script>
-      (function() {
-        const orgAdd = HTMLCanvasElement.prototype.addEventListener;
-        const orgRemove = HTMLCanvasElement.prototype.removeEventListener;
-        const map = new WeakMap();
-
-        HTMLCanvasElement.prototype.addEventListener = function(type, listener, options) {
-          if (typeof listener !== 'function') {
-            return orgAdd.call(this, type, listener, options);
-          }
-          const self = this;
-          const wrapped = function(e) {
-            const rect = self.getBoundingClientRect();
-            console.log(`[CANVAS-EVENT] type=${e.type} button=${e.button} clientX=${e.clientX} clientY=${e.clientY} rect.left=${rect.left} rect.top=${rect.top} rect.width=${rect.width} rect.height=${rect.height} canvas.width=${self.width} canvas.height=${self.height}`);
-            return listener.apply(this, arguments);
-          };
-          if (!map.has(this)) {
-            map.set(this, new Map());
-          }
-          const typeMap = map.get(this);
-          if (!typeMap.has(type)) {
-            typeMap.set(type, new Map());
-          }
-          typeMap.get(type).set(listener, wrapped);
-          console.log(`[CANVAS-ADD-LISTENER] id=${self.id} type=${type}`);
-          return orgAdd.call(this, type, wrapped, options);
-        };
-
-        HTMLCanvasElement.prototype.removeEventListener = function(type, listener, options) {
-          if (typeof listener !== 'function') {
-            return orgRemove.call(this, type, listener, options);
-          }
-          const typeMap = map.get(this)?.get(type);
-          const wrapped = typeMap?.get(listener);
-          if (wrapped) {
-            typeMap.delete(listener);
-            return orgRemove.call(this, type, wrapped, options);
-          }
-          return orgRemove.call(this, type, listener, options);
-        };
-      })();
-
-      // ====================================================================
       // window.GeneralsX — bridge between the WASM engine and the loading UI.
       //
       // EmscriptenMain.cpp calls window.GeneralsX.setProgress(stage, current,
@@ -485,27 +544,39 @@
         }
 
         function gxFinishLoading() {
-          overlay.classList.add('gx-hide');
-          setTimeout(() => { overlay.style.display = 'none'; }, 700);
+          console.log('[GeneralsX] gxFinishLoading() called');
+          if (overlay) {
+            overlay.classList.add('gx-hide');
+            setTimeout(() => {
+              overlay.style.display = 'none';
+              console.log('[GeneralsX] loading overlay display set to none');
+            }, 700);
+          }
         }
 
         function gxShowStartButton() {
+          console.log('[GeneralsX] gxShowStartButton() called');
           overlay.classList.add('gx-await-start');
-          // Focus the button so Enter/Space also activates it (keyboard users
-          // and screen readers).
           if (startBtn) {
             try { startBtn.focus(); } catch (e) {}
           }
         }
 
-        function gxOnFirstGesture() {
+        function gxOnFirstGesture(e) {
+          const eventType = e ? e.type : 'manual';
+          console.log('[GeneralsX] gxOnFirstGesture() triggered by event:', eventType, 'lastReady:', lastReady, 'gxReadyPending:', gxReadyPending);
           gxResumeAudioContext();
           gxUserGestureSeen = true;
-          // If the engine had been waiting for us, finish the handoff now.
-          if (gxReadyPending) {
+          
+          // Unconditionally clear the overlay if the engine is ready
+          if (lastReady || gxReadyPending) {
+            console.log('[GeneralsX] Handoff proceeding. Hiding loading screen...');
             gxReadyPending = false;
-            overlay.classList.remove('gx-await-start');
-            gxFinishLoading();
+            if (overlay) {
+              overlay.classList.remove('gx-await-start');
+              gxFinishLoading();
+            }
+            removeGestureListeners();
           }
         }
 
@@ -515,7 +586,10 @@
                                   { passive: true, capture: true });
         });
         if (startBtn) {
-          startBtn.addEventListener('click', gxOnFirstGesture);
+          startBtn.addEventListener('click', function(e) {
+            console.log('[GeneralsX] Begin button click listener fired');
+            gxOnFirstGesture(e);
+          });
         }
 
         function setOverallPct(pct) {
@@ -616,10 +690,15 @@
           //   visible === false → engine is drawing its own cursor; hide system
           // The C++ SetCursor() stub in windows_base.h calls this through
           // EmscriptenInput_SetCanvasCursor.
+          cursorVisible: true,
           setCanvasCursor: function (visible) {
             const c = document.getElementById('canvas');
             if (!c) return;
             c.style.cursor = visible ? 'default' : 'none';
+            window.GeneralsX.cursorVisible = !!visible;
+            if (typeof window.GeneralsX.updateVirtualCursorVisibility === 'function') {
+              window.GeneralsX.updateVirtualCursorVisibility();
+            }
           },
 
           // Secondary "background loading" toast — used by the deferred audio
@@ -644,7 +723,20 @@
           hideSecondaryProgress: function () {
             const toast = document.getElementById('gx-toast');
             if (toast) toast.classList.remove('gx-show');
-          }
+          },
+          settings: (function() {
+            var defaults = { lockCursor: false, edgeScroll: true, edgeScrollZone: 20 };
+            try {
+              var saved = localStorage.getItem('generalsx_settings');
+              if (saved) {
+                var parsed = JSON.parse(saved);
+                if (typeof parsed === 'object' && parsed !== null) {
+                  return Object.assign(defaults, parsed);
+                }
+              }
+            } catch(e) {}
+            return defaults;
+          })()
         };
 
         // ------------------------------------------------------------------
@@ -747,21 +839,35 @@
         const canvasEl = document.getElementById('canvas');
         if (canvasEl) {
           canvasEl.addEventListener('mousedown', function (e) {
-            // 2 = right button. Only request if not already locked.
-            if (e.button === 2 && document.pointerLockElement !== canvasEl) {
-              const req = canvasEl.requestPointerLock || canvasEl.mozRequestPointerLock;
-              if (req) {
-                try { req.call(canvasEl); }
-                catch (err) { /* browser may decline; harmless */ }
+            if (window.GeneralsX.settings.lockCursor) {
+              // Continuous lock mode: request pointer lock on any click if not locked
+              if (document.pointerLockElement !== canvasEl) {
+                const req = canvasEl.requestPointerLock || canvasEl.mozRequestPointerLock;
+                if (req) {
+                  try { req.call(canvasEl); }
+                  catch (err) { /* browser may decline; harmless */ }
+                }
+              }
+            } else {
+              // Right-click drag mode: only request on right button (2)
+              if (e.button === 2 && document.pointerLockElement !== canvasEl) {
+                const req = canvasEl.requestPointerLock || canvasEl.mozRequestPointerLock;
+                if (req) {
+                  try { req.call(canvasEl); }
+                  catch (err) { /* browser may decline; harmless */ }
+                }
               }
             }
           });
           canvasEl.addEventListener('mouseup', function (e) {
-            if (e.button === 2 && document.pointerLockElement === canvasEl) {
-              const exit = document.exitPointerLock || document.mozExitPointerLock;
-              if (exit) {
-                try { exit.call(document); }
-                catch (err) { /* harmless */ }
+            // If continuous lock is disabled, exit pointer lock on right mouse up
+            if (!window.GeneralsX.settings.lockCursor) {
+              if (e.button === 2 && document.pointerLockElement === canvasEl) {
+                const exit = document.exitPointerLock || document.mozExitPointerLock;
+                if (exit) {
+                  try { exit.call(document); }
+                  catch (err) { /* harmless */ }
+                }
               }
             }
           });
@@ -769,8 +875,31 @@
           // available once the WASM is instantiated; before that we just
           // queue the call to fire on first ready event.
           let lastLockedReported = -1;
+          var isPointerLocked = false;
+
+          let vx = 0;
+          let vy = 0;
+
+          window.GeneralsX.updateVirtualCursorVisibility = function() {
+            var vc = document.getElementById('gx-virtual-cursor');
+            if (!vc) return;
+            if (isPointerLocked && window.GeneralsX.cursorVisible) {
+              vc.style.display = 'block';
+              const rect = canvasEl.getBoundingClientRect();
+              const screenX = rect.left + (vx * rect.width / 800);
+              const screenY = rect.top + (vy * rect.height / 600);
+              vc.style.left = screenX + 'px';
+              vc.style.top = screenY + 'px';
+            } else {
+              vc.style.display = 'none';
+            }
+          };
+
           const reportLock = function () {
             const locked = document.pointerLockElement === canvasEl ? 1 : 0;
+            isPointerLocked = !!locked;
+            window.GeneralsX.updateVirtualCursorVisibility();
+
             if (locked === lastLockedReported) return;
             lastLockedReported = locked;
             // ccall is exported (see EXPORTED_RUNTIME_METHODS).
@@ -788,6 +917,37 @@
           document.addEventListener('pointerlockerror', function () {
             console.warn('[GeneralsX] Pointer Lock request was denied');
           });
+
+          // Track mouse movements: absolute coordinates when not pointer-locked,
+          // and movement deltas when locked.
+          const handleMouseMove = function (e) {
+            const rect = canvasEl.getBoundingClientRect();
+            if (isPointerLocked) {
+              const movementX = e.movementX || e.mozMovementX || e.webkitMovementX || 0;
+              const movementY = e.movementY || e.mozMovementY || e.webkitMovementY || 0;
+              vx += movementX;
+              vy += movementY;
+              // Clamp to 800x600 logical coordinate space of the game
+              if (vx < 0) vx = 0;
+              if (vy < 0) vy = 0;
+              if (vx > 799) vx = 799;
+              if (vy > 599) vy = 599;
+            } else {
+              vx = Math.round(((e.clientX - rect.left) / rect.width) * 800);
+              vy = Math.round(((e.clientY - rect.top) / rect.height) * 600);
+            }
+
+            if (isPointerLocked && window.GeneralsX.cursorVisible) {
+              const vc = document.getElementById('gx-virtual-cursor');
+              if (vc) {
+                const screenX = rect.left + (vx * rect.width / 800);
+                const screenY = rect.top + (vy * rect.height / 600);
+                vc.style.left = screenX + 'px';
+                vc.style.top = screenY + 'px';
+              }
+            }
+          };
+          document.addEventListener('mousemove', handleMouseMove, { passive: true });
         }
 
         // --- Default Emscripten Module wiring -------------------------------
@@ -970,10 +1130,12 @@
         window.addEventListener('error', function (e) {
           // Don't blow the overlay up on benign asset-not-found warnings — the
           // engine handles those gracefully. Only show on real exceptions.
-          if (e.error) {
-            window.GeneralsX.showError(
-                (e.error.stack || e.message || String(e)));
+          const err = e.error || e;
+          const errStr = String(err.stack || err.message || err);
+          if (errStr.includes('unwind') || errStr === 'unwind') {
+            return; // Ignore Asyncify control flow unwinds
           }
+          window.GeneralsX.showError(errStr);
         });
 
         // Press F2 in the browser to toggle the on-page log overlay.
@@ -984,6 +1146,108 @@
             e.preventDefault();
           }
         });
+
+        // Initialize Settings Panel Drawer and UI interactivity
+        function initSettings() {
+          var canvasEl = document.getElementById('canvas');
+          var toggleBtn = document.getElementById('gx-settings-toggle');
+          var drawer = document.getElementById('gx-settings-drawer');
+          var lockCursorCb = document.getElementById('gx-setting-lock-cursor');
+          var edgeScrollCb = document.getElementById('gx-setting-edge-scroll');
+          var edgeZoneSlider = document.getElementById('gx-setting-edge-zone');
+          var edgeZoneVal = document.getElementById('gx-setting-edge-zone-val');
+          var fullscreenBtn = document.getElementById('gx-btn-fullscreen');
+
+          if (!toggleBtn || !drawer) return;
+
+          // Toggle drawer visibility
+          toggleBtn.addEventListener('click', function(e) {
+            drawer.classList.toggle('gx-show');
+            e.stopPropagation();
+          });
+
+          // Close drawer when clicking outside
+          document.addEventListener('click', function(e) {
+            if (!drawer.contains(e.target) && !toggleBtn.contains(e.target)) {
+              drawer.classList.remove('gx-show');
+            }
+          });
+
+          // Prevent canvas click logic when clicking settings drawer controls
+          drawer.addEventListener('mousedown', function(e) {
+            e.stopPropagation();
+          });
+
+          // Initial UI setup from localStorage-backed settings
+          lockCursorCb.checked = !!window.GeneralsX.settings.lockCursor;
+          edgeScrollCb.checked = !!window.GeneralsX.settings.edgeScroll;
+          edgeZoneSlider.value = window.GeneralsX.settings.edgeScrollZone;
+          edgeZoneVal.textContent = window.GeneralsX.settings.edgeScrollZone + 'px';
+
+          function saveSettings() {
+            try {
+              localStorage.setItem('generalsx_settings', JSON.stringify(window.GeneralsX.settings));
+            } catch(e) {}
+          }
+
+          lockCursorCb.addEventListener('change', function() {
+            window.GeneralsX.settings.lockCursor = lockCursorCb.checked;
+            saveSettings();
+            if (!lockCursorCb.checked && canvasEl && document.pointerLockElement === canvasEl) {
+              var exit = document.exitPointerLock || document.mozExitPointerLock;
+              if (exit) {
+                try { exit.call(document); } catch (err) {}
+              }
+            }
+          });
+
+          edgeScrollCb.addEventListener('change', function() {
+            window.GeneralsX.settings.edgeScroll = edgeScrollCb.checked;
+            saveSettings();
+          });
+
+          edgeZoneSlider.addEventListener('input', function() {
+            var val = parseInt(edgeZoneSlider.value, 10) || 20;
+            window.GeneralsX.settings.edgeScrollZone = val;
+            edgeZoneVal.textContent = val + 'px';
+            saveSettings();
+          });
+
+          fullscreenBtn.addEventListener('click', function() {
+            if (!document.fullscreenElement && !document.mozFullScreenElement && !document.webkitFullscreenElement) {
+              var docEl = document.documentElement;
+              var req = docEl.requestFullscreen || docEl.mozRequestFullScreen || docEl.webkitRequestFullscreen || docEl.msRequestFullscreen;
+              if (req) {
+                req.call(docEl).then(function() {
+                  fullscreenBtn.textContent = 'Exit Fullscreen';
+                }).catch(function(err) {
+                  console.warn('[GeneralsX] fullscreen request failed:', err);
+                });
+              }
+            } else {
+              var exit = document.exitFullscreen || document.mozCancelFullScreen || document.webkitExitFullscreen || document.msExitFullscreen;
+              if (exit) {
+                exit.call(document).then(function() {
+                  fullscreenBtn.textContent = 'Go Fullscreen';
+                });
+              }
+            }
+          });
+
+          var handleFullscreenChange = function() {
+            var isFs = !!(document.fullscreenElement || document.mozFullScreenElement || document.webkitFullScreenElement);
+            fullscreenBtn.textContent = isFs ? 'Exit Fullscreen' : 'Go Fullscreen';
+          };
+          document.addEventListener('fullscreenchange', handleFullscreenChange);
+          document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+          document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+        }
+
+        if (document.readyState !== 'loading') {
+          initSettings();
+        } else {
+          document.addEventListener('DOMContentLoaded', initSettings);
+        }
       })();
     </script>
 

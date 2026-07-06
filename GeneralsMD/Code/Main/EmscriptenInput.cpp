@@ -62,6 +62,9 @@ const void *c_dfDIKeyboard = nullptr;
 // existing camera-pan delta math working unchanged.
 // ============================================================================
 
+static int ScaleMouseX(int x);
+static int ScaleMouseY(int y);
+
 static int g_lastCursorVisible = -1;        // -1 = unknown, 0 = hidden, 1 = visible
 static bool g_relativeMouseActive = false;  // mirrors SDL_GetRelativeMouseMode
 static int g_virtualMouseX = 0;
@@ -127,8 +130,9 @@ void EmscriptenInput_OnPointerLockChange(int locked) {
     // coordinate stream when we cross from absolute → delta mode.
     int sx = 0, sy = 0;
     SDL_GetMouseState(&sx, &sy);
-    g_virtualMouseX = sx;
-    g_virtualMouseY = sy;
+    // Scale sx and sy from logical SDL window dimensions to canvas attributes space
+    g_virtualMouseX = ScaleMouseX(sx);
+    g_virtualMouseY = ScaleMouseY(sy);
   }
   fprintf(stderr, "INFO: pointer lock %s\n", want ? "engaged" : "released");
 }
@@ -174,6 +178,11 @@ static int ScaleMouseX(int x) {
   if (TheDisplay != nullptr) {
     targetW = TheDisplay->getWidth();
   }
+  if (g_relativeMouseActive) {
+    if (x < 0) return 0;
+    if (x > targetW - 1) return targetW - 1;
+    return x;
+  }
   int sdlW = g_canvasW;
   extern SDL_Window *TheSDL3Window;
   if (TheSDL3Window) {
@@ -193,6 +202,11 @@ static int ScaleMouseY(int y) {
   if (TheDisplay != nullptr) {
     targetH = TheDisplay->getHeight();
   }
+  if (g_relativeMouseActive) {
+    if (y < 0) return 0;
+    if (y > targetH - 1) return targetH - 1;
+    return y;
+  }
   int sdlH = g_canvasH;
   extern SDL_Window *TheSDL3Window;
   if (TheSDL3Window) {
@@ -205,6 +219,14 @@ static int ScaleMouseY(int y) {
   if (y < 0) return 0;
   if (y > targetH - 1) return targetH - 1;
   return y;
+}
+
+extern "C" int EmscriptenInput_GetVirtualMouseX() {
+  return g_virtualMouseX;
+}
+
+extern "C" int EmscriptenInput_GetVirtualMouseY() {
+  return g_virtualMouseY;
 }
 
 static int Touch_NormalizedToPixelX(float nx) {
@@ -220,7 +242,7 @@ static int Touch_NormalizedToPixelY(float ny) {
 }
 
 static void Touch_QueryCentroidAndPinch(int *cxOut, int *cyOut,
-                                        float *pinchOut) {
+                                         float *pinchOut) {
   // SDL_GetNumTouchDevices() can be > 1 on some hardware; we walk all of them
   // and pick the first device with active fingers. In practice on the web
   // there is exactly one touch device (the canvas).
@@ -480,13 +502,8 @@ void EmscriptenInput_PumpEvents() {
                 g_virtualMouseY += event.motion.yrel;
                 if (g_virtualMouseX < 0) g_virtualMouseX = 0;
                 if (g_virtualMouseY < 0) g_virtualMouseY = 0;
-                int sdlW = g_canvasW, sdlH = g_canvasH;
-                extern SDL_Window *TheSDL3Window;
-                if (TheSDL3Window) {
-                    SDL_GetWindowSize(TheSDL3Window, &sdlW, &sdlH);
-                }
-                int maxW = sdlW > 0 ? (sdlW - 1) : 1023;
-                int maxH = sdlH > 0 ? (sdlH - 1) : 767;
+                int maxW = g_canvasW > 0 ? (g_canvasW - 1) : 799;
+                int maxH = g_canvasH > 0 ? (g_canvasH - 1) : 599;
                 if (g_virtualMouseX > maxW) g_virtualMouseX = maxW;
                 if (g_virtualMouseY > maxH) g_virtualMouseY = maxH;
                 x = g_virtualMouseX;

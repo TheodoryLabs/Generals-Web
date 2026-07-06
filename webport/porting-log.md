@@ -167,7 +167,7 @@ duplicate symbols, and include path issues.
   Emscripten/WebAssembly port` (commit d481e4a, Apr 7 2026) plus follow-up docs.
 
 ## 2026-05-04 — Session 5: Triage After Pickup
-- Re-opened the project; the `/Users/builduser/GeneralsX-build/build.log`
+- Re-opened the project; the `<build-root>/build.log`
   in the parent dir reports undefined `TheMessageTime`, `ApplicationHInstance`,
   `c_dfDIKeyboard`. **That log is stale (Mar 13)** — it predates Session 4's
   stub additions and the Mar 31 successful link. Verified via direct WASM
@@ -250,7 +250,7 @@ progress bar fed by per-stage events from the C++ engine.
 21. **`GeneralsMD/Code/Main/CMakeLists.txt`** — added `--shell-file
     ${GX_WEB_SHELL}` to `target_link_options` for the Emscripten target plus
     a `LINK_DEPENDS` property so changing the shell triggers a relink.
-22. **`/Users/builduser/GeneralsX-build/link_mac.sh`** — added the
+22. **`<build-root>/link_mac.sh`** — added the
     same `--shell-file` to the manual link path so a `link_mac.sh` rebuild
     picks up the new shell without needing a full ninja run.
 

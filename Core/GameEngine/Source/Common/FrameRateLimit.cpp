@@ -32,6 +32,13 @@ FrameRateLimit::FrameRateLimit()
 
 Real FrameRateLimit::wait(UnsignedInt maxFps)
 {
+#ifdef __EMSCRIPTEN__
+	LARGE_INTEGER tick;
+	QueryPerformanceCounter(&tick);
+	double elapsedSeconds = static_cast<double>(tick.QuadPart - m_start) / m_freq;
+	m_start = tick.QuadPart;
+	return (Real)elapsedSeconds;
+#else
 	LARGE_INTEGER tick;
 	QueryPerformanceCounter(&tick);
 	double elapsedSeconds = static_cast<double>(tick.QuadPart - m_start) / m_freq;
@@ -55,6 +62,7 @@ Real FrameRateLimit::wait(UnsignedInt maxFps)
 
 	m_start = tick.QuadPart;
 	return (Real)elapsedSeconds;
+#endif
 }
 
 

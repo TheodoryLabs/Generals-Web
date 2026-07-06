@@ -66,4 +66,48 @@ build.ninja
 
 ## Python
 __pycache__/
-*.pyc
+*.pyc# This file documents web-port specific ignores.
+
+# Emscripten build output (build-web/ is outside this repo)
+build-web/
+build/
+
+# Node modules (used by Emscripten tooling)
+node_modules/
+package-lock.json
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Build artifacts not in dist/
+*.o
+*.a
+*.so
+*.dylib
+
+# Large binary assets (not distributed with source)
+assets/*.big
+assets/deferred/
+
+# emsdk (install separately)
+emsdk/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+*.cmake.in
+GeneralsZH.wasm
+
+## Game data — NEVER commit EA assets (see NOTICE)
+*.big
+*.bik
+Data/
+assets/
+game-assets/
+*.sav

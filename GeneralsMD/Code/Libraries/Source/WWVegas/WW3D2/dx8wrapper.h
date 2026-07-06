@@ -351,11 +351,19 @@ public:
 		unsigned short polygon_count,
 		unsigned short min_vertex_index,
 		unsigned short vertex_count);
+	static void Draw_Triangles_Instanced(
+		unsigned short start_index,
+		unsigned short polygon_count,
+		unsigned short min_vertex_index,
+		unsigned short vertex_count,
+		const float* world_matrices,
+		unsigned int instance_count);
 	static void Draw_Strip(
 		unsigned short start_index,
 		unsigned short index_count,
 		unsigned short min_vertex_index,
 		unsigned short vertex_count);
+
 
 	/*
 	** Resources

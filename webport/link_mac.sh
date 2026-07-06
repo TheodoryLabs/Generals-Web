@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+
+# Workspace root — set GX_BUILD_ROOT to your build workspace (contains build-web/, emsdk/, GeneralsX/).
+: "${GX_BUILD_ROOT:=$(pwd)}"
+
 # =============================================================================
 # link_mac.sh — Link-only step for GeneralsX WebAssembly build (Mac)
 #
@@ -31,8 +35,8 @@ case "${MODE}" in
      exit 1 ;;
 esac
 
-BUILD_DIR="/Users/builduser/GeneralsX-build/build-web"
-EMSDK_DIR="/Users/builduser/GeneralsX-build/emsdk"
+BUILD_DIR="${GX_BUILD_ROOT}/build-web"
+EMSDK_DIR="${GX_BUILD_ROOT}/emsdk"
 EMPP="${EMSDK_DIR}/upstream/emscripten/em++"
 LOG="${BUILD_DIR}/link_mac.${MODE}.log"
 
@@ -67,7 +71,7 @@ MAIN_OBJS=(
 
 # Custom HTML shell with the GeneralsX progress UI. Points at the source-tree
 # copy so the link picks up the latest version each time.
-WEB_SHELL="/Users/builduser/GeneralsX-build/GeneralsX/GeneralsMD/Code/Main/web_shell.html"
+WEB_SHELL="${GX_BUILD_ROOT}/GeneralsX/GeneralsMD/Code/Main/web_shell.html"
 
 # Common flags shared between debug and release. NOTE:
 # EXPORTED_RUNTIME_METHODS is per-mode (not in COMMON_LINK_FLAGS) because the

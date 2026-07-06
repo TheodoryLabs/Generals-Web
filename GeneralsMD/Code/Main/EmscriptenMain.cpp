@@ -617,7 +617,7 @@ int main(int argc, char *argv[]) {
     // WebVisibility::Init() registers a `visibilitychange` callback that
     // pauses the entire main loop (and therefore the engine update + draw
     // path) whenever `document.hidden` becomes true. In an iframe context
-    // (Claude Preview, embedded players, etc.) `document.hidden` toggles
+    // (AI-tool preview panes, embedded players, etc.) `document.hidden` toggles
     // spuriously across focus shifts, leaving the engine paused and the
     // canvas frozen on a black clear. The pause was meant as a battery /
     // perf optimisation for tabs in the background; it doesn't justify
@@ -862,7 +862,7 @@ int main(int argc, char *argv[]) {
     // `requestAnimationFrame`. The browser aggressively throttles rAF for
     // any document where `document.hidden` is true — and "hidden" can
     // mean a backgrounded tab, an iframe whose ancestor frame is not
-    // currently composited, or in our case the Claude Preview iframe
+    // currently composited — e.g. an embedding preview iframe
     // (which reports `document.hidden === true` even while visible). With
     // rAF stalled the engine's frame callback never runs, so the canvas
     // stays on whatever the last drawn state was — black.

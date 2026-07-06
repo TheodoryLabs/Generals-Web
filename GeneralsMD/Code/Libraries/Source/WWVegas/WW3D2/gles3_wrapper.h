@@ -289,7 +289,9 @@ struct GLES3_ProgramUniformLocations {
   GLint u_Stage1_AlphaOp;
   GLint u_ColorVertex;
   GLint u_TextureFactor;
+  GLint u_InstancingEnabled;
 };
+
 
 // ============================================================================
 // Fixed-Function Emulation Shader Manager
@@ -306,6 +308,9 @@ public:
 
   // Upload uniforms to match current DX8 state
   static void Apply_Uniforms(GLuint program, const GLES3_PipelineState &state);
+
+  // Get cached instancing uniform location
+  static GLint Get_Instancing_Uniform_Location(const GLES3_PipelineState &state);
 
 private:
   static GLuint Compile_Shader(GLenum type, const char *source);
@@ -443,8 +448,16 @@ void GLES3_Draw_Triangles(unsigned int prim_type,
                            unsigned int prim_count,
                            unsigned int min_vertex,
                            unsigned int num_vertices);
+void GLES3_Draw_Triangles_Instanced(unsigned int prim_type,
+                                    unsigned int start_index,
+                                    unsigned int prim_count,
+                                    unsigned int min_vertex,
+                                    unsigned int num_vertices,
+                                    const float* world_matrices,
+                                    unsigned int instance_count);
 void GLES3_Draw_Arrays(unsigned int prim_type,
                         unsigned int start_vertex,
                         unsigned int prim_count);
+
 
 #endif // __EMSCRIPTEN__

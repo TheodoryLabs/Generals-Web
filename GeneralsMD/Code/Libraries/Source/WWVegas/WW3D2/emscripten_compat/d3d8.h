@@ -701,7 +701,7 @@ struct Emscripten_IDirect3DVertexBuffer8 : public IDirect3DVertexBuffer8 {
     bool dirty;
 
     Emscripten_IDirect3DVertexBuffer8(UINT length = 0)
-        : stride(0), gl_vbo(0), dirty(false) {
+        : stride(0), gl_vbo(0), dirty(true) {
         data.resize(length, 0);
     }
     ~Emscripten_IDirect3DVertexBuffer8() {
@@ -721,7 +721,7 @@ struct Emscripten_IDirect3DVertexBuffer8 : public IDirect3DVertexBuffer8 {
     GLuint Upload_And_Bind() {
         if (!gl_vbo) glGenBuffers(1, &gl_vbo);
         glBindBuffer(GL_ARRAY_BUFFER, gl_vbo);
-        if (dirty || true) {
+        if (dirty) {
             glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)data.size(),
                          data.data(), GL_DYNAMIC_DRAW);
             dirty = false;
@@ -739,7 +739,7 @@ struct Emscripten_IDirect3DIndexBuffer8 : public IDirect3DIndexBuffer8 {
     bool dirty;
 
     Emscripten_IDirect3DIndexBuffer8(UINT length = 0)
-        : gl_ibo(0), dirty(false) {
+        : gl_ibo(0), dirty(true) {
         data.resize(length, 0);
     }
     ~Emscripten_IDirect3DIndexBuffer8() {
@@ -758,7 +758,7 @@ struct Emscripten_IDirect3DIndexBuffer8 : public IDirect3DIndexBuffer8 {
     GLuint Upload_And_Bind() {
         if (!gl_ibo) glGenBuffers(1, &gl_ibo);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gl_ibo);
-        if (dirty || true) {
+        if (dirty) {
             glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)data.size(),
                          data.data(), GL_DYNAMIC_DRAW);
             dirty = false;

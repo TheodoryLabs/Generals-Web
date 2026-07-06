@@ -202,7 +202,7 @@ class TextureLoadTaskClass : public TextureLoadTaskListNodeClass
 
 
 		TextureLoadTaskClass();
-		~TextureLoadTaskClass();
+		virtual ~TextureLoadTaskClass();
 
 		static TextureLoadTaskClass *	Create			(TextureBaseClass *tc, TaskType type, PriorityType priority);
 		static void				Delete_Free_Pool			();
@@ -265,6 +265,7 @@ class TextureLoadTaskClass : public TextureLoadTaskListNodeClass
 		TaskType					Type;
 		PriorityType			Priority;
 		StateType				State;
+		bool					IsDDSLoad;
 };
 
 class CubeTextureLoadTaskClass : public TextureLoadTaskClass
