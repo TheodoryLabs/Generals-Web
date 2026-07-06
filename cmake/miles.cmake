@@ -2,6 +2,9 @@ FetchContent_Declare(
     miles
     GIT_REPOSITORY https://github.com/TheSuperHackers/miles-sdk-stub.git
     GIT_TAG        6e32700d7ba4b4713a03bf1f5ffc3b0ac8d17264
+    # Guard mss.h's WAVEFORMAT against the emscripten_compat definition —
+    # see cmake/patch-miles-waveformat.cmake. GeneralsX @build WebPort 2026-07-07
+    PATCH_COMMAND ${CMAKE_COMMAND} -DMILES_MSS_H=<SOURCE_DIR>/mss/mss.h -P ${CMAKE_SOURCE_DIR}/cmake/patch-miles-waveformat.cmake
 )
 
 # GeneralsX @feature WebPort 09/03/2026 — Emscripten: miles-sdk-stub creates a SHARED library
