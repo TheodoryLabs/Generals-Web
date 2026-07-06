@@ -218,6 +218,14 @@ If you find the browser part impressive, know that it steers 1.7 million lines o
 
 ---
 
+## Known Issues
+
+- **Chrome 149.0.7827.x (current stable) can crash the tab.** Chrome 149 stable ships a V8 garbage-collector bug (upstream fix landed in V8 on Jul 2, 2026; a Chrome respin is imminent) that can abort the renderer while large WebAssembly apps run. It is probabilistic and hits busy browser profiles hardest. Workarounds until the Chrome update: relaunch Chrome with `--js-flags=--no-compact`, or use Chrome Beta / Chrome 148 / a Chromium fork. Not a bug in this port; tracked in [#15](https://github.com/TheodoryLabs/Generals-Web/issues/15).
+- **First map load freezes the tab for a while.** Asset streaming is synchronous by design (see [BigVFS notes](docs/web-port/GOOD-FIRST-ISSUES.md)); the range cache keeps repeats fast, but the first cold load of a map can hold the main thread for tens of seconds. If Chrome offers "Page Unresponsive", choose **Wait**.
+- Frame rate dips as bases grow; draw-call batching is the active fix (issue [#13](https://github.com/TheodoryLabs/Generals-Web/issues/13) area).
+
+---
+
 ## Legal
 
 - Source code is licensed under **GPL-3.0 with EA's additional terms**: see [LICENSE.md](LICENSE.md), preserved verbatim from EA's source release.
