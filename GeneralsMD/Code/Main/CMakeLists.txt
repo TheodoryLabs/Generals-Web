@@ -87,15 +87,35 @@ if(EMSCRIPTEN)
     )
     
     # GeneralsX @build WebPort 2026-07-06 — flags aligned to the last known-good
-    # link line (link_mac.sh debug profile, 2026-05-24) so a clean CMake build
-    # reproduces the .o-surgery era binary: SAFE_HEAP=0 (session 7700f1f),
-    # EXIT_RUNTIME=0, 1GB/2GB heap + 4MB stack, idbfs, and the full 12-symbol
-    # export list (virtual mouse getters, audio EOS callback, virtual network).
+    # link line (link_mac.sh, 2026-05-24) so a clean CMake build reproduces the
+    # .o-surgery era binary: SAFE_HEAP=0 (session 7700f1f), EXIT_RUNTIME=0,
+    # 1GB/2GB heap + 4MB stack, idbfs, and the full 12-symbol export list.
+    # Two profiles, matching link_mac.sh debug/release:
+    #   CMAKE_BUILD_TYPE=Release      -> -O3, closure, emmalloc (distribution)
+    #   anything else (RelWithDebInfo)-> -O0 -g3, assertions (development)
+    # GeneralsX @build WebPort 2026-07-07
+    if(CMAKE_BUILD_TYPE STREQUAL "Release")
+        set(GX_PROFILE_FLAGS
+            "-O3"
+            "--closure=1"
+            "SHELL:--closure-args=--externs=${CMAKE_CURRENT_SOURCE_DIR}/closure-externs-gx.js"
+            "-sMALLOC=emmalloc"
+            # Closure's ADVANCED_OPTIMIZATIONS needs the legacy allocator
+            # helpers declared (SDL2's SDL_assert.c EM_ASM references them).
+            "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS','printErr','addFunction','noExitRuntime','UTF8ToString','allocate','ALLOC_NORMAL','intArrayFromString']"
+        )
+    else()
+        set(GX_PROFILE_FLAGS
+            "-O0"
+            "-g3"
+            "-sASSERTIONS=2"
+            "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS','printErr','addFunction','noExitRuntime','UTF8ToString']"
+        )
+    endif()
+
     set(EMSCRIPTEN_ASYNC_FLAGS
-        "-O0"
-        "-g3"
+        ${GX_PROFILE_FLAGS}
         "-sSAFE_HEAP=0"
-        "-sASSERTIONS=2"
         "-sEXIT_RUNTIME=0"
         "-sUSE_SDL=2"
         "-sUSE_SDL_IMAGE=2"
@@ -121,7 +141,8 @@ if(EMSCRIPTEN)
         "-sFORCE_FILESYSTEM=1"
         "-sENVIRONMENT=web"
         "-lidbfs.js"
-        "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS','printErr','addFunction','noExitRuntime','UTF8ToString']"
+        # (EXPORTED_RUNTIME_METHODS comes from GX_PROFILE_FLAGS above —
+        # repeated -s flags override, so it must appear exactly once.)
         # JS-callable C entry points. EMSCRIPTEN_KEEPALIVE attributes alone
         # *should* be enough, but listing them explicitly is defensive.
         "-sEXPORTED_FUNCTIONS=['_main','_EmscriptenInput_OnPointerLockChange','_EmscriptenInput_GetVirtualMouseX','_EmscriptenInput_GetVirtualMouseY','_GX_FlushIdbfs_Tab','_GX_OnCanvasResize','_AIL_trigger_sample_eos','_GX_Network_EnableVirtual','_GX_Network_PushPacket','_GX_Network_SetVirtualIP','_malloc','_free']"

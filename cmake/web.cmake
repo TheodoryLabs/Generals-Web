@@ -52,7 +52,14 @@ add_link_options(-fexceptions -sDISABLE_EXCEPTION_CATCHING=0)
 
 # Debugging and Source Maps
 # DEMANGLE_SUPPORT was removed in Emscripten 4.x+ (stacks demangle by default)
-add_link_options(-g -sSAFE_HEAP=1 -sASSERTIONS=2)
+# Debug diagnostics only outside the Release distribution profile —
+# -g keeps full DWARF in the wasm (5x size) and assertions cost frames.
+# GeneralsX @build WebPort 2026-07-07
+if(NOT CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_link_options(-g -sSAFE_HEAP=1 -sASSERTIONS=2)
+else()
+    add_link_options(-g0 -sASSERTIONS=0)
+endif()
 
 # Filesystem support
 add_link_options(-sFORCE_FILESYSTEM=1)
