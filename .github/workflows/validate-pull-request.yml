@@ -24,7 +24,7 @@ concurrency:
 jobs:
   validate-title-and-commits:
     name: Validate Title and Commits
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-latest
     timeout-minutes: 3
 
     # Expose context as env vars to avoid inline ${{ }} in run blocks (injection hardening).
