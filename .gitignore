@@ -66,7 +66,9 @@ build.ninja
 
 ## Python
 __pycache__/
-*.pyc# This file documents web-port specific ignores.
+*.pyc
+
+## Web-port specific ignores
 
 # Emscripten build output (build-web/ is outside this repo)
 build-web/

@@ -1,0 +1,63 @@
+name: Asset Guard
+
+# Fails loudly if EA game data ever enters the tree. This repository ships
+# engine code only: no .big/.bik archives and nothing under an assets/
+# directory may ever be tracked (see NOTICE). A single committed archive
+# would force a git history rewrite — this guard exists so that never happens.
+
+permissions:
+  contents: read
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  no-game-assets:
+    name: No Game Assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check all tracked files
+        run: |
+          set -euo pipefail
+          echo "Scanning every tracked file for game-asset patterns..."
+          VIOLATIONS=$(git ls-files | grep -iE '(^|/)assets/|\.(big|bik)$' || true)
+          if [ -n "$VIOLATIONS" ]; then
+            echo "::error::Game asset files are tracked in this repository:"
+            echo "$VIOLATIONS"
+            echo ""
+            echo "This repository must contain engine code only. EA game data"
+            echo "(.big/.bik archives, anything under an assets/ directory) is"
+            echo "not redistributable — see NOTICE at the repository root."
+            echo "Remove these files AND scrub them from git history before merging."
+            exit 1
+          fi
+          echo "OK: no game asset files are tracked."
+
+      - name: Check files changed by this pull request
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          echo "Scanning files changed between $BASE_SHA and $HEAD_SHA..."
+          CHANGED=$(git diff --name-only --diff-filter=d "$BASE_SHA" "$HEAD_SHA" || true)
+          VIOLATIONS=$(echo "$CHANGED" | grep -iE '(^|/)assets/|\.(big|bik)$' || true)
+          if [ -n "$VIOLATIONS" ]; then
+            echo "::error::This pull request adds or modifies game asset files:"
+            echo "$VIOLATIONS"
+            echo ""
+            echo "Pull requests must never include EA game data (.big/.bik"
+            echo "archives, anything under an assets/ directory) — not even as"
+            echo "test fixtures. See NOTICE at the repository root."
+            exit 1
+          fi
+          echo "OK: this pull request adds no game asset files."

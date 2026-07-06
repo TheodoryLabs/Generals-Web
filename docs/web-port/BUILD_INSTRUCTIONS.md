@@ -1,3 +1,5 @@
+> **Historical document** — this describes the original development machine's workflow/state and is kept for the record. For the current build process see [BUILDING.md](../../BUILDING.md).
+
 # GeneralsX — Link-Only Build Instructions (Mac)
 
 ## What this does

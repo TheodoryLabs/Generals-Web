@@ -1,9 +1,8 @@
 blank_issues_enabled: true
 contact_links:
-- name: Feature Request
-  url: https://github.com/TheSuperHackers/GeneralsGameCode/discussions/categories/ideas
-  about: Share your ideas or request new features to enhance the game
-
-- name: Community Outpost Discord Server
-  url: https://discord.gg/WzxQDZersE
-  about: For help with miscellaneous things, join our Discord community
+  - name: Upstream engine project (TheSuperHackers/GeneralsGameCode)
+    url: https://github.com/TheSuperHackers/GeneralsGameCode
+    about: For issues in the original game logic that are not specific to the web port.
+  - name: Security vulnerabilities
+    url: https://github.com/TheodoryLabs/Generals-Web/security/advisories/new
+    about: Report sensitive security issues privately — see SECURITY.md.

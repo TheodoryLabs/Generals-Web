@@ -174,7 +174,7 @@ jobs:
           BODY="$BODY"$'\n'"type(scope): Description"
           BODY="$BODY"$'\n'"\`\`\`"
           BODY="$BODY"$'\n\n'"**Allowed types:** $VALID_TAGS"
-          BODY="$BODY"$'\n\n'"See [CONTRIBUTING.md](https://github.com/$REPO/blob/$BASE_REF/CONTRIBUTING.md#pull-request-documentation) for details."
+          BODY="$BODY"$'\n\n'"See [CONTRIBUTING.md](https://github.com/$REPO/blob/$BASE_REF/CONTRIBUTING.md#pull-request-expectations) for details."
 
           gh pr comment "$PR_NUMBER" \
             --repo "$REPO" \

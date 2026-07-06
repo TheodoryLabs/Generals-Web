@@ -1,12 +1,17 @@
-# How to Run Command & Conquer Web
+# Generals-Web — Setup Guide
+
+*How to run C&C Generals — Zero Hour in your browser.*
 
 This guide walks you through getting the game running in your browser from scratch.
+
+> You must own a legal copy of the game — it's included in [*C&C The Ultimate Collection* on Steam](https://store.steampowered.com/bundle/39394) and the EA App. No game assets are included with this project; your files stay on your machine (see [NOTICE](NOTICE)).
 
 ---
 
 ## What You Need
 
-1. **The web build** — download from the [latest GitHub Release](https://github.com/TheodoryLabs/command-and-conquer-web/releases/latest)
+1. **The web build** — download from the [latest GitHub Release](https://github.com/TheodoryLabs/Generals-Web/releases/latest)
+   *(note: release `v0.4.0-web` predates the working renderer — prefer the newest release, or build from source via [BUILDING.md](BUILDING.md))*
 2. **The game asset files** — you must own a legal copy of C&C Generals Zero Hour
 3. **Python 3** — to run the local server (comes pre-installed on macOS/Linux)
 
@@ -48,38 +53,22 @@ Copy these files — these are the **required** ones for startup:
 | `PatchINI.big` | ~52 KB | Patch overrides |
 | `gensecZH.big` | ~769 KB | Security/checksum data |
 
-> The audio files (`AudioZH.big`, `MusicZH.big`, `SpeechZH.big`) are not yet required — audio archive mounting is a pending feature.
+> The audio archives (`AudioZH.big`, `MusicZH.big`, `SpeechZH.big`, `SpeechEnglishZH.big`) are mounted lazily after the menu loads — copy them too if you want the audio pipeline exercised as it comes online.
 
 ---
 
 ## Step 2 — Set Up Your Folder
 
-Create a folder anywhere on your computer. Download the four files from the [GitHub Release](https://github.com/TheodoryLabs/command-and-conquer-web/releases/latest) and create an `assets/` subfolder with your `.big` files. Your folder should look exactly like this:
+Create a folder anywhere on your computer. Download the four files from the [GitHub Release](https://github.com/TheodoryLabs/Generals-Web/releases/latest) and create an `assets/` subfolder with your `.big` files. Your folder should look exactly like this:
 
 ```
 generals-web/
 ├── GeneralsZH.html       ← download from Release
 ├── GeneralsZH.js         ← download from Release
-├── GeneralsZH.wasm       ← download from Release  (~43 MB)
+├── GeneralsZH.wasm       ← download from Release (size varies by release)
 ├── serve.py              ← download from Release
 └── assets/
-    ├── INIZH.big
-    ├── INI.big
-    ├── TexturesZH.big
-    ├── Textures.big
-    ├── W3DZH.big
-    ├── W3D.big
-    ├── WindowZH.big
-    ├── Window.big
-    ├── EnglishZH.big
-    ├── English.big
-    ├── MapsZH.big
-    ├── maps.big
-    ├── TerrainZH.big
-    ├── ShadersZH.big
-    ├── shaders.big
-    ├── PatchINI.big
-    └── gensecZH.big
+    └── (the 17 .big files from the table above)
 ```
 
 > **Important:** The `.big` files must be inside the `assets/` subfolder, not the same folder as the HTML.

@@ -1,3 +1,5 @@
+> **Historical document** — this describes the original development machine's workflow/state and is kept for the record.
+
 # GeneralsX Web Port — Rendering & Build Status
 ## Updated: 2026-03-15
 

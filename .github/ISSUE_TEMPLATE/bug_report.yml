@@ -1,0 +1,96 @@
+name: Bug Report
+description: Something broke in the browser? Tell us about it.
+labels: ["bug", "triage"]
+
+body:
+- type: markdown
+  attributes:
+    value: |
+      Thanks for the report! A few minutes of detail here saves hours of guessing.
+
+      **Never attach game data files** (`.big`, `.bik`, audio, maps, extracted INI/W3D
+      content) to an issue — they are EA's property and not redistributable (see
+      [NOTICE](../blob/main/NOTICE)). Screenshots of the running game are fine.
+
+- type: checkboxes
+  attributes:
+    label: Prerequisites
+    options:
+      - label: I have searched existing issues and this is not a duplicate
+        required: true
+      - label: I have not attached any game asset files to this report
+        required: true
+
+- type: input
+  attributes:
+    label: Browser and version
+    description: The exact browser matters a lot for a WebAssembly/WebGL project.
+    placeholder: "e.g. Chrome 138.0.7204.50, Firefox 140"
+  validations:
+    required: true
+
+- type: dropdown
+  attributes:
+    label: Operating system
+    options:
+      - Windows
+      - macOS
+      - Linux
+      - Other (describe below)
+  validations:
+    required: true
+
+- type: dropdown
+  attributes:
+    label: Which build were you running?
+    description: Debug builds (the default `RelWithDebInfo` from BUILDING.md) give much better stack traces.
+    options:
+      - Prebuilt files from a GitHub Release
+      - Self-built — RelWithDebInfo / debug (BUILDING.md default)
+      - Self-built — release/optimized profile
+      - Not sure
+  validations:
+    required: true
+
+- type: input
+  attributes:
+    label: Version or commit
+    placeholder: "e.g. v0.5.0-web, or commit d8c1235"
+  validations:
+    required: false
+
+- type: textarea
+  attributes:
+    label: What happened?
+    description: What did you see, and what did you expect to see instead?
+  validations:
+    required: true
+
+- type: textarea
+  attributes:
+    label: Steps to reproduce
+    placeholder: |
+      1. Serve the build with scripts/serve.py 8888
+      2. Open GeneralsZH.html in Chrome
+      3. Click Skirmish -> ...
+      4. Observe ...
+  validations:
+    required: false
+
+- type: textarea
+  attributes:
+    label: Browser console output
+    description: |
+      Open DevTools (`F12` → Console tab) and paste the relevant output — errors,
+      warnings, VFS messages, stack traces. This is usually the single most useful
+      part of a report.
+    render: shell
+  validations:
+    required: false
+
+- type: textarea
+  attributes:
+    label: Screenshot / additional context
+    description: Screenshots or screen recordings of the running game are welcome. No game data files.
+  validations:
+    required: false
