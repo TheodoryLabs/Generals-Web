@@ -34,6 +34,24 @@ EM_JS(
     (const char *url, unsigned int start, unsigned int end, void *buffer), {
       try {
         const urlStr = UTF8ToString(url);
+
+        // JS-side range memo: the engine re-requests identical ranges heavily
+        // (archive directories per lookup, evicted files re-read on demand);
+        // measured ~120 duplicate fetches of one archive per boot. Each sync
+        // XHR blocks the main thread, so repeats are pure freeze time. Cache
+        // entries up to 4 MB with a ~192 MB LRU cap.
+        // GeneralsX @feature WebPort 2026-07-07 (issue #2)
+        if (!Module.gxRC) Module.gxRC = { map: new Map(), bytes: 0 };
+        const rc = Module.gxRC;
+        const key = urlStr + '|' + start + '|' + end;
+        const hit = rc.map.get(key);
+        if (hit !== undefined) {
+          rc.map.delete(key); // LRU: move to back
+          rc.map.set(key, hit);
+          HEAPU8.set(hit, buffer);
+          return hit.length;
+        }
+
         const xhr = new XMLHttpRequest();
         xhr.open('GET', urlStr, false); // false makes it synchronous
         xhr.setRequestHeader('Range', 'bytes=' + start + '-' + end);
@@ -50,6 +68,16 @@ EM_JS(
         const u8 = new Uint8Array(byteLen);
         for (let i = 0; i < byteLen; ++i) {
           u8[i] = responseText.charCodeAt(i) & 0xff;
+        }
+
+        if (byteLen <= 4194304) {
+          rc.map.set(key, u8);
+          rc.bytes += byteLen;
+          while (rc.bytes > 201326592 && rc.map.size > 0) {
+            const oldest = rc.map.keys().next().value;
+            rc.bytes -= rc.map.get(oldest).length;
+            rc.map.delete(oldest);
+          }
         }
 
         HEAPU8.set(u8, buffer);
