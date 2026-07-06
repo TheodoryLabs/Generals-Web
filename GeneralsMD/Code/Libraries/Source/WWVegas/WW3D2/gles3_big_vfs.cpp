@@ -23,49 +23,42 @@ std::vector<BigArchive> BigVFS::archives;
 std::unordered_map<std::string, unsigned int> BigVFS::file_lookup;
 std::unordered_map<std::string, BigVFS::CachedData> BigVFS::cache;
 
+std::list<std::string> BigVFS::inactive_lru;
+unsigned int BigVFS::inactive_cache_bytes = 0;
+
 // ============================================================================
-// Fetch_Range_JS — Native HTTP Range Request via JS Promises + Asyncify
+// Fetch_Range_JS — Native HTTP Range Request via Synchronous XHR
 // ============================================================================
-EM_ASYNC_JS(
+EM_JS(
     int, Fetch_Range_JS,
     (const char *url, unsigned int start, unsigned int end, void *buffer), {
       try {
         const urlStr = UTF8ToString(url);
-        const headers = new Headers();
-        headers.append('Range', 'bytes=' + start + '-' + end);
-        const response = await fetch(urlStr, {headers : headers});
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', urlStr, false); // false makes it synchronous
+        xhr.setRequestHeader('Range', 'bytes=' + start + '-' + end);
+        xhr.overrideMimeType('text/plain; charset=x-user-defined');
+        xhr.send(null);
 
-        if (!response.ok && response.status != 206 && response.status != 200) {
-          console.error("Fetch range failed with status", response.status);
-          return -response.status; // return negative status on HTTP error
+        if (xhr.status !== 200 && xhr.status !== 206) {
+          console.error("Fetch range sync failed with status", xhr.status);
+          return -xhr.status;
         }
 
-        const arrayBuffer = await response.arrayBuffer();
-        let u8;
-        if (response.status === 200) {
-            // Server didn't support Range requests and returned the whole file
-            const byteLen = arrayBuffer.byteLength;
-            if (start >= byteLen) { return 0; }
-            let sliceEnd = end + 1;
-            if (sliceEnd > byteLen) { sliceEnd = byteLen; }
-            u8 = new Uint8Array(arrayBuffer, start, sliceEnd - start);
-        } else {
-            // Server returned 206 Partial Content
-            let byteLen = arrayBuffer.byteLength;
-            const expectedLen = end - start + 1;
-            if (byteLen > expectedLen) {
-                byteLen = expectedLen;
-            }
-            u8 = new Uint8Array(arrayBuffer, 0, byteLen);
+        const responseText = xhr.responseText || "";
+        const byteLen = responseText.length;
+        const u8 = new Uint8Array(byteLen);
+        for (let i = 0; i < byteLen; ++i) {
+          u8[i] = responseText.charCodeAt(i) & 0xff;
         }
+
         HEAPU8.set(u8, buffer);
-
-        return u8.length; // Return actual bytes read
+        return byteLen;
       } catch (e) {
-        if (typeof Module != 'undefined' && Module.printErr) {
-          Module.printErr("Fetch_Range_JS exception: " + e.stack);
+        if (typeof Module !== 'undefined' && Module.printErr) {
+          Module.printErr("Fetch_Range_JS sync exception: " + e.stack);
         }
-        console.error("Fetch_Range_JS exception:", e);
+        console.error("Fetch_Range_JS sync exception:", e);
         return 0; // 0 indicates network error or exception
       }
     });
@@ -109,6 +102,8 @@ bool BigVFS::Init(const char *url) {
   archives.clear();
   file_lookup.clear();
   cache.clear();
+  inactive_lru.clear();
+  inactive_cache_bytes = 0;
 
   fprintf(stderr, "INFO: BigVFS initialized with base URL: %s\n",
           base_url.c_str());
@@ -119,15 +114,27 @@ bool BigVFS::Init(const char *url) {
 // Shutdown
 // ============================================================================
 void BigVFS::Shutdown() {
+  // Free preloaded archive buffers
+  for (auto &archive : archives) {
+    if (archive.preloaded_buffer) {
+      free(archive.preloaded_buffer);
+      archive.preloaded_buffer = nullptr;
+    }
+  }
+
+  // Free dynamically loaded cached files
   for (auto &pair : cache) {
     if (pair.second.data) {
       free(pair.second.data);
     }
   }
   cache.clear();
-  file_lookup.clear();
+  inactive_lru.clear();
+  inactive_cache_bytes = 0;
   archives.clear();
+  file_lookup.clear();
 }
+
 
 // ============================================================================
 // Parse_Header — Parse a .big file header from raw bytes
@@ -210,31 +217,98 @@ bool BigVFS::Parse_Header(const void *header_data, unsigned int header_size,
 // ============================================================================
 // Mount_Archive — Download header and register a .big archive
 // ============================================================================
+static bool Should_Preload(const std::string& filename) {
+  std::string name = filename;
+  for (auto &c : name) c = tolower(c);
+  return name == "ini.big" || name == "inizh.big" ||
+         name == "window.big" || name == "windowzh.big" ||
+         name == "shaders.big" || name == "shaderszh.big" ||
+         name == "maps.big" || name == "mapszh.big" ||
+         name == "terrainzh.big";
+}
+
 bool BigVFS::Mount_Archive(const char *archive_name) {
   std::string url = base_url + archive_name;
 
-  // We fetch the first 512KB which should be enough for most .big directories
-  unsigned int fetch_size = 524288;
-  void *fetch_data = malloc(fetch_size);
-
-  int bytes_read = Fetch_Range_JS(url.c_str(), 0, fetch_size - 1, fetch_data);
-
-  if (bytes_read <= 0) {
-    fprintf(stderr, "ERROR: Failed to fetch .big header: %s (status %d)\n",
+  // Step 1: Fetch the first 16 bytes containing the header metadata
+  unsigned char initial_header[16];
+  int bytes_read = Fetch_Range_JS(url.c_str(), 0, 15, initial_header);
+  if (bytes_read < 16) {
+    fprintf(stderr, "ERROR: Failed to fetch first 16 bytes of archive: %s (status %d)\n",
             archive_name, bytes_read);
-    free(fetch_data);
     return false;
   }
+
+  // Check magic "BIGF"
+  if (initial_header[0] != 'B' || initial_header[1] != 'I' || initial_header[2] != 'G' || initial_header[3] != 'F') {
+    fprintf(stderr, "ERROR: Not a valid .big file magic for %s\n", archive_name);
+    return false;
+  }
+
+  // Archive total size (little-endian at offset 4)
+  unsigned int total_size = *(const unsigned int *)(initial_header + 4);
+
+  // Header directory size (big-endian at offset 12 / 0x0C)
+  unsigned int raw_header_size;
+  memcpy(&raw_header_size, initial_header + 12, 4);
+  unsigned int header_size = BE_To_Host(raw_header_size);
 
   BigArchive archive;
   archive.filename = archive_name;
   archive.url = url;
+  archive.total_size = total_size;
+  archive.preloaded_buffer = nullptr;
 
-  bool ok = Parse_Header(fetch_data, bytes_read, &archive);
-  free(fetch_data);
+  bool ok = false;
+  if (Should_Preload(archive_name)) {
+    // Preload path: allocate memory for the entire archive and download it
+    void* preload_buf = malloc(total_size);
+    if (!preload_buf) {
+      fprintf(stderr, "ERROR: Out of memory allocating %u bytes for preloading %s\n", total_size, archive_name);
+      return false;
+    }
 
-  if (!ok)
+    int total_read = Fetch_Range_JS(url.c_str(), 0, total_size - 1, preload_buf);
+    if (total_read <= 0 || (unsigned int)total_read < total_size) {
+      fprintf(stderr, "ERROR: Failed to preload entire archive %s (read %d/%u bytes)\n",
+              archive_name, total_read, total_size);
+      free(preload_buf);
+      return false;
+    }
+
+    archive.preloaded_buffer = preload_buf;
+    ok = Parse_Header(preload_buf, total_size, &archive);
+  } else {
+    // Lazy path: only download the exact remaining header bytes
+    void* header_buf = malloc(header_size);
+    if (!header_buf) {
+      return false;
+    }
+
+    // Copy the first 16 bytes we already downloaded
+    memcpy(header_buf, initial_header, 16);
+
+    if (header_size > 16) {
+      int remaining_read = Fetch_Range_JS(url.c_str(), 16, header_size - 1, (char*)header_buf + 16);
+      if (remaining_read <= 0 || (unsigned int)remaining_read < (header_size - 16)) {
+        fprintf(stderr, "ERROR: Failed to fetch remaining header bytes for %s (read %d)\n",
+                archive_name, remaining_read);
+        free(header_buf);
+        return false;
+      }
+    }
+
+    ok = Parse_Header(header_buf, header_size, &archive);
+    free(header_buf);
+  }
+
+  if (!ok) {
+    if (archive.preloaded_buffer) {
+      free(archive.preloaded_buffer);
+      archive.preloaded_buffer = nullptr;
+    }
     return false;
+  }
 
   // Set archive index on entries and build lookup table
   unsigned int archive_idx = (unsigned int)archives.size();
@@ -246,10 +320,11 @@ bool BigVFS::Mount_Archive(const char *archive_name) {
   }
 
   archives.push_back(std::move(archive));
-  fprintf(stderr, "INFO: Mounted archive '%s' (%u files)\n", archive_name,
-          archives.back().file_count);
+  fprintf(stderr, "INFO: Mounted archive '%s' (%u files, preloaded=%d)\n", archive_name,
+          archives.back().file_count, Should_Preload(archive_name));
   return true;
 }
+
 
 // ============================================================================
 // Find_File — Look up a file by path
@@ -284,6 +359,12 @@ bool BigVFS::Read_File_Sync(const char *path, void **out_data,
   // Check cache first
   auto cache_it = cache.find(norm);
   if (cache_it != cache.end()) {
+    // If it was in the inactive LRU queue, rescue it
+    if (cache_it->second.is_inactive) {
+      inactive_lru.erase(cache_it->second.lru_it);
+      inactive_cache_bytes -= cache_it->second.size;
+      cache_it->second.is_inactive = false;
+    }
     *out_data = cache_it->second.data;
     *out_size = cache_it->second.size;
     return true;
@@ -296,13 +377,47 @@ bool BigVFS::Read_File_Sync(const char *path, void **out_data,
     return false;
   }
 
-  // Fetch the byte range from the server
   const BigArchive &archive = archives[entry->archive_index];
+  if (archive.preloaded_buffer) {
+    *out_data = (char*)archive.preloaded_buffer + entry->offset;
+    *out_size = entry->size;
+    return true;
+  }
+
+  // GeneralsX @feature WebPort 2026-05-05 — short-circuit zero-byte entries.
+  // BIG archives can legitimately store empty files (e.g. ShellMapMD\map.ini).
+  // Issuing a Range request like 'bytes=N-(N-1)' is invalid HTTP and returns
+  // 416 Range Not Satisfiable; without this guard the engine keeps retrying
+  // forever and floods the console with -416 errors.
+  if (entry->size == 0) {
+    void *empty = malloc(1);  // non-null sentinel
+    if (!empty) return false;
+    CachedData cd;
+    cd.data = empty;
+    cd.size = 0;
+    cd.is_inactive = false;
+    cache[norm] = cd;
+    *out_data = cd.data;
+    *out_size = 0;
+    return true;
+  }
+
 
   // Copy data into cache
   void *data_copy = malloc(entry->size);
   if (!data_copy) {
     return false;
+  }
+
+  // GX-TRACE — record the fetch right before it suspends Asyncify so we
+  // can identify which file is the last one before a freeze.
+  {
+    FILE *t = fopen("/gx_trace.log", "a");
+    if (t) {
+      fprintf(t, "BigVFS BEFORE-FETCH path='%s' offset=%u size=%u\n",
+              path, entry->offset, entry->size);
+      fclose(t);
+    }
   }
 
   // Fetch the file data.  Retry once on transient failure (Asyncify state
@@ -319,6 +434,15 @@ bool BigVFS::Read_File_Sync(const char *path, void **out_data,
                                 entry->offset + entry->size - 1, data_copy);
   }
 
+  {
+    FILE *t = fopen("/gx_trace.log", "a");
+    if (t) {
+      fprintf(t, "BigVFS AFTER-FETCH path='%s' bytes_read=%d\n",
+              path, bytes_read);
+      fclose(t);
+    }
+  }
+
   if (bytes_read <= 0) {
     fprintf(stderr,
             "ERROR: Failed to fetch file data: %s from %s (status %d)\n", path,
@@ -330,6 +454,7 @@ bool BigVFS::Read_File_Sync(const char *path, void **out_data,
   CachedData cd;
   cd.data = data_copy;
   cd.size = (unsigned int)bytes_read;
+  cd.is_inactive = false;
   cache[norm] = cd;
 
   *out_data = cd.data;
@@ -338,11 +463,67 @@ bool BigVFS::Read_File_Sync(const char *path, void **out_data,
 }
 
 // ============================================================================
+// Evict_File — Free dynamic download cache for a file
+// ============================================================================
+void BigVFS::Evict_File(const char *path) {
+  if (!path) return;
+  std::string norm = Normalize_Path(path);
+
+  // Make sure it is in cache
+  auto it = cache.find(norm);
+  if (it == cache.end()) return;
+
+  // If it is already inactive, do nothing
+  if (it->second.is_inactive) return;
+
+  // Don't queue preloaded buffers (they are never evicted anyway)
+  const BigFileEntry *entry = Find_File(path);
+  if (entry && entry->size > 0) {
+    const BigArchive &archive = archives[entry->archive_index];
+    if (archive.preloaded_buffer) {
+      return;
+    }
+  }
+
+  // Add to LRU queue as inactive
+  inactive_lru.push_front(norm);
+  it->second.lru_it = inactive_lru.begin();
+  it->second.is_inactive = true;
+  inactive_cache_bytes += it->second.size;
+
+  // If cache exceeds limit (128 MB), evict the oldest files (from the back of the queue)
+  const unsigned int INACTIVE_CACHE_LIMIT_BYTES = 128 * 1024 * 1024;
+  while (inactive_cache_bytes > INACTIVE_CACHE_LIMIT_BYTES && !inactive_lru.empty()) {
+    std::string oldest = inactive_lru.back();
+    inactive_lru.pop_back();
+
+    auto cache_it = cache.find(oldest);
+    if (cache_it != cache.end()) {
+      const BigFileEntry *oldest_entry = Find_File(oldest.c_str());
+      if (oldest_entry && oldest_entry->size > 0) {
+        const BigArchive &archive = archives[oldest_entry->archive_index];
+        if (!archive.preloaded_buffer) {
+          free(cache_it->second.data);
+        }
+      } else if (!oldest_entry) {
+        free(cache_it->second.data);
+      }
+      inactive_cache_bytes -= cache_it->second.size;
+      cache.erase(cache_it);
+    }
+  }
+}
+
+// ============================================================================
 // C-Linkage wrapper for GameEngine to call without headers
 // ============================================================================
 extern "C" bool Web_VFS_Read_File_Sync(const char *path, void **out_data,
                                        unsigned int *out_size) {
   return BigVFS::Read_File_Sync(path, out_data, out_size);
+}
+
+extern "C" void Web_VFS_Evict_File(const char *path) {
+  BigVFS::Evict_File(path);
 }
 
 // ============================================================================

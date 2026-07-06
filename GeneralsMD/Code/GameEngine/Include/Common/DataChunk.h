@@ -170,7 +170,7 @@ EMPTY_DTOR(UserParser)
 //----------------------------------------------------------------------
 class DataChunkInput
 {
-	enum {CHUNK_HEADER_BYTES = 4}; // 2 shorts in chunk file header.
+	enum {CHUNK_HEADER_BYTES = 10}; // 2 shorts in chunk file header.
 protected:
 	ChunkInputStream*					m_file;															// input file stream
 	DataChunkTableOfContents	m_contents;							// table of contents of data chunk types

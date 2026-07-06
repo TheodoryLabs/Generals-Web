@@ -2,7 +2,7 @@
 ** osdep.h — OS dependency abstraction for UNIX / Linux / Emscripten
 **
 ** Provides Windows-style string/memory helpers that are absent on POSIX platforms.
-** TheSuperHackers @build BenderAI 11/02/2026
+** GeneralsX @build BenderAI 11/02/2026
 ** GeneralsX @feature WebPort 09/03/2026 — Emscripten guard on strupr/strrev
 */
 #pragma once

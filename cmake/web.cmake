@@ -8,6 +8,15 @@
 # GeneralsX @feature WebPort 09/03/2026
 # ============================================================================
 
+# CMAKE_PROJECT_INCLUDE re-runs this file at every subproject's project() call
+# (gamespy, Generals, GeneralsMD). The flags and targets below must only be
+# created once, at the top level — guard against re-entry.
+# GeneralsX @build WebPort 2026-07-06
+if(GENERALSX_WEB_CMAKE_INCLUDED)
+    return()
+endif()
+set(GENERALSX_WEB_CMAKE_INCLUDED TRUE)
+
 message(STATUS "=== Configuring GeneralsX Web Port (Emscripten + WebGL 2.0) ===")
 
 # ============================================================================
@@ -34,16 +43,16 @@ add_link_options(
 # Fetch API (for HTTP Range requests to .big archives)
 add_link_options(-sFETCH=1)
 
-# ASYNCIFY (for emscripten_sleep in loading phase and EM_ASYNC_JS fetch)
-# 2MB stack — needed when Fetch_Range_JS is called from deep C++ call chains
-add_link_options(-sASYNCIFY=1 -sASYNCIFY_STACK_SIZE=8388608)
+# ASYNCIFY disabled to optimize performance (Fetch_Range_JS uses synchronous XHR and emscripten_sleep yields are commented out)
+add_link_options(-sASYNCIFY=0)
 
 # Enable C++ Exception catching so we can see what is crashing
 add_compile_options(-fexceptions -g)
 add_link_options(-fexceptions -sDISABLE_EXCEPTION_CATCHING=0)
 
 # Debugging and Source Maps
-add_link_options(-g -sSAFE_HEAP=1 -sASSERTIONS=2 -sDEMANGLE_SUPPORT=1)
+# DEMANGLE_SUPPORT was removed in Emscripten 4.x+ (stacks demangle by default)
+add_link_options(-g -sSAFE_HEAP=1 -sASSERTIONS=2)
 
 # Filesystem support
 add_link_options(-sFORCE_FILESYSTEM=1)
@@ -77,12 +86,8 @@ add_definitions(-DNO_MILES=1)
 # Game code guarded by #ifndef NO_GAMESPY will be compiled out.
 add_definitions(-DNO_GAMESPY=1)
 
-# Disable the doubly-linked MPSB fast-path: it has a list-consistency bug
-# (bad linkage assertion) that corrupts the DynamicMemoryAllocator free list
-# on Emscripten, leading to subsequent allocations returning objects with
-# invalid vtable pointers → RuntimeError: function signature mismatch.
-# The singly-linked fallback is O(n) but correct.
-add_definitions(-DDISABLE_MEMORYPOOL_MPSB_DLINK=1)
+# The doubly-linked MPSB fast-path is enabled by default to allow O(1) removals.
+# add_definitions(-DDISABLE_MEMORYPOOL_MPSB_DLINK=1)
 
 # Disable MEMORYPOOL_BOUNDINGWALL debug feature: in WASM32 (4-byte pointers),
 # the post-wall fill/check of a freed pool block overlaps with the immediately
@@ -97,7 +102,7 @@ add_definitions(-DDISABLE_MEMORYPOOL_BOUNDINGWALL=1)
 # allocators with standard heap allocations. Slightly slower but eliminates all
 # pool-related corruption (POOL-DOUBLE-FREE, MPSB dlink, bounding wall).
 # Requires a full rebuild: delete build-web/CMakeCache.txt then ninja.
-set(RTS_GAMEMEMORY_ENABLE OFF CACHE BOOL "Disable GameMemory pool on web" FORCE)
+set(RTS_GAMEMEMORY_ENABLE ON CACHE BOOL "Disable GameMemory pool on web" FORCE)
 
 # Force SAGE_USE_OPENAL so WWAudio uses MilesStub.h instead of mss.h
 # Emscripten provides OpenAL→WebAudio via -sUSE_OPENAL=1

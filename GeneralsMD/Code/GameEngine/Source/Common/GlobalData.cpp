@@ -1064,7 +1064,11 @@ GlobalData::GlobalData() {
   m_useLightMap = FALSE;
   m_bilinearTerrainTex = FALSE;
   m_trilinearTerrainTex = FALSE;
+#ifdef __EMSCRIPTEN__
+  m_multiPassTerrain = TRUE;
+#else
   m_multiPassTerrain = FALSE;
+#endif
   m_adjustCliffTextures = FALSE;
   m_stretchTerrain = FALSE;
   m_useHalfHeightMap = FALSE;
@@ -1506,6 +1510,24 @@ GlobalData::GlobalData() {
     CreateDirectory(myDocumentsDirectory.str(), nullptr);
     m_userDataDir = myDocumentsDirectory;
   }
+
+#ifdef __EMSCRIPTEN__
+  // Override on Emscripten: web_shell.html mounts IDBFS at /userdata for
+  // persistent save / config storage. The engine builds paths with backslash
+  // separators which don't work as path separators in MEMFS — and the leaf
+  // name contains spaces that make any later chdir even more brittle. Force a
+  // clean, predictable path under /userdata, with forward slashes throughout
+  // so fopen/chdir work without the LocalFile path-normalization helper
+  // having to do extra work for this one prefix. Engine code that subsequently
+  // appends `Save\` etc. will still produce backslashes; LocalFile::open on
+  // Emscripten normalizes those before passing to fopen.
+  //
+  // The directory itself is created from JS at preRun time (see
+  // web_shell.html: idbfsPreRun → FS.mkdir('/userdata') + FS.mount(IDBFS)),
+  // so by the time this runs the path already exists in MEMFS.
+  // GeneralsX @feature WebPort 2026-05-04 — IDBFS persistence
+  m_userDataDir = "/userdata/";
+#endif
 
   //-allAdvice feature
   // m_allAdvice = FALSE;

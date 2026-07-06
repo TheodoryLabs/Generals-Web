@@ -90,9 +90,12 @@ enum GLES3_RenderState {
   GLES3_RS_FOGEND = 37,
   GLES3_RS_FOGDENSITY = 38,
   GLES3_RS_LIGHTING = 137,
+  GLES3_RS_AMBIENT = 139,
   GLES3_RS_COLORVERTEX = 141,
   GLES3_RS_NORMALIZENORMALS = 143,
   GLES3_RS_STENCILENABLE = 52,
+  GLES3_RS_TEXTUREFACTOR = 60,
+  GLES3_RS_ZBIAS = 47,
   GLES3_RS_MAX = 256
 };
 
@@ -210,6 +213,7 @@ struct GLES3_PipelineState {
   GLES3_Light lights[4];
   bool light_enabled[4];
   bool lighting_enabled;
+  float global_ambient[4];
 
   // Fog
   bool fog_enabled;
@@ -238,10 +242,56 @@ struct GLES3_PipelineState {
   // Vertex array object
   GLuint vao;
 
+  // RenderState TFACTOR
+  float texture_factor[4];
+
   // Statistics
   unsigned int draw_calls;
   unsigned int triangles_drawn;
 };
+
+// ============================================================================
+// Shader Uniform Cache
+// ============================================================================
+struct GLES3_ProgramUniformLocations {
+  GLint u_World;
+  GLint u_View;
+  GLint u_Projection;
+  GLint u_MatDiffuse;
+  GLint u_MatAmbient;
+  GLint u_MatSpecular;
+  GLint u_MatEmissive;
+  GLint u_MatPower;
+  GLint u_LightingEnabled;
+  GLint u_GlobalAmbient;
+  struct {
+    GLint diffuse;
+    GLint position;
+    GLint direction;
+    GLint enabled;
+    GLint type;
+    GLint attenuation0;
+    GLint attenuation1;
+    GLint attenuation2;
+  } u_Lights[4];
+  GLint u_FogEnabled;
+  GLint u_FogColor;
+  GLint u_FogStart;
+  GLint u_FogEnd;
+  GLint u_AlphaTestEnabled;
+  GLint u_AlphaRef;
+  GLint u_AlphaFunc;
+  GLint u_Texture[4];
+  GLint u_TextureStageCount;
+  GLint u_Stage0_ColorOp;
+  GLint u_Stage1_ColorOp;
+  GLint u_Stage0_AlphaOp;
+  GLint u_Stage1_AlphaOp;
+  GLint u_ColorVertex;
+  GLint u_TextureFactor;
+  GLint u_InstancingEnabled;
+};
+
 
 // ============================================================================
 // Fixed-Function Emulation Shader Manager
@@ -259,13 +309,18 @@ public:
   // Upload uniforms to match current DX8 state
   static void Apply_Uniforms(GLuint program, const GLES3_PipelineState &state);
 
+  // Get cached instancing uniform location
+  static GLint Get_Instancing_Uniform_Location(const GLES3_PipelineState &state);
+
 private:
   static GLuint Compile_Shader(GLenum type, const char *source);
   static GLuint Link_Program(GLuint vert, GLuint frag);
+  static void Populate_Locations(GLuint program, unsigned int hash);
 
   // Shader cache (keyed by texture stage configuration hash)
   // Avoids recompiling shaders every frame
   static GLuint cached_programs[256];
+  static GLES3_ProgramUniformLocations cached_locations[256];
   static unsigned int Hash_Pipeline_Config(const GLES3_PipelineState &state);
 };
 
@@ -284,6 +339,11 @@ public:
   static GLuint Create_Texture(unsigned int width, unsigned int height,
                                unsigned int dx8_format, unsigned int mip_levels,
                                const void *data);
+
+  // Update GL texture in-place (used by dynamic textures)
+  static void Update_Texture(GLuint gl_tex_id, unsigned int width, unsigned int height,
+                             unsigned int dx8_format, unsigned int mip_levels,
+                             const void *data);
 };
 
 // ============================================================================
@@ -369,6 +429,12 @@ void GLES3_Set_Texture(unsigned int stage, GLuint gl_texture);
 void GLES3_Set_Texture_Stage_State(unsigned int stage, unsigned int state,
                                     unsigned int value);
 
+// Texture mipmap tracking
+void GLES3_Register_Texture(GLuint tex, bool has_mipmaps);
+void GLES3_Unregister_Texture(GLuint tex);
+bool GLES3_Texture_Has_Mipmaps(GLuint tex);
+
+
 // Lighting & material
 void GLES3_Set_Light(unsigned int index, const GLES3_Light* light);
 void GLES3_Enable_Light(unsigned int index, bool enable);
@@ -382,8 +448,16 @@ void GLES3_Draw_Triangles(unsigned int prim_type,
                            unsigned int prim_count,
                            unsigned int min_vertex,
                            unsigned int num_vertices);
+void GLES3_Draw_Triangles_Instanced(unsigned int prim_type,
+                                    unsigned int start_index,
+                                    unsigned int prim_count,
+                                    unsigned int min_vertex,
+                                    unsigned int num_vertices,
+                                    const float* world_matrices,
+                                    unsigned int instance_count);
 void GLES3_Draw_Arrays(unsigned int prim_type,
                         unsigned int start_vertex,
                         unsigned int prim_count);
+
 
 #endif // __EMSCRIPTEN__

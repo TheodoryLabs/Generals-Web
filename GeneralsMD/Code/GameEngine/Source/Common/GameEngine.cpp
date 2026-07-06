@@ -936,7 +936,14 @@ void GameEngine::init() {
 
       MapCache::const_iterator it = TheMapCache->find(lowerName);
       if (it == TheMapCache->end()) {
+#ifdef __EMSCRIPTEN__
+        fprintf(stderr,
+                "GX-TRACE: WebPort: MapCache miss for shellmap '%s' — "
+                "keeping m_shellMapOn=TRUE anyway (tracers active)\n",
+                lowerName.str());
+#else
         TheWritableGlobalData->m_shellMapOn = FALSE;
+#endif
       }
     }
 

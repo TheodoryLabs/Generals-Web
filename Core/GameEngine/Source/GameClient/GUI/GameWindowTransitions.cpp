@@ -282,16 +282,25 @@ void TransitionGroup::update()
 
 Bool TransitionGroup::isFinished()
 {
+	static int spamCounter = 0;
+	Bool allFinished = TRUE;
 	TransitionWindowList::iterator it = m_transitionWindowList.begin();
 	while (it != m_transitionWindowList.end())
 	{
 		TransitionWindow *tWin = *it;
 		if(tWin->isFinished() == FALSE)
-			return FALSE;
+		{
+			allFinished = FALSE;
+			if (m_currentFrame > 60 && (spamCounter++ % 30 == 0))
+			{
+				fprintf(stderr, "GX-TRACE: TransitionGroup '%s' frame=%d NOT finished because window '%s' (style=%d) is not finished.\n",
+					m_name.str(), m_currentFrame, tWin->m_winName.str(), tWin->m_style);
+			}
+		}
 		it++;
 	}
 
-	return TRUE;
+	return allFinished;
 }
 
 void TransitionGroup::reverse()

@@ -42,6 +42,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <list>
 
 // ============================================================================
 // BIG Archive Entry — one file within a .big archive
@@ -63,6 +64,7 @@ struct BigArchive {
     unsigned int total_size;    // Total archive size
     unsigned int file_count;    // Number of entries
     std::vector<BigFileEntry> entries;
+    void* preloaded_buffer = nullptr; // Pointer to fully downloaded archive buffer, if preloaded
 };
 
 // ============================================================================
@@ -128,6 +130,9 @@ public:
     // Mount all files into Emscripten's MEMFS at /assets/
     // This creates the directory structure but with lazy file content loading
     static bool Mount_To_Emscripten_FS();
+    
+    // Evict a file from the dynamic cache to reclaim memory
+    static void Evict_File(const char* path);
 
 private:
     static std::string base_url;
@@ -139,8 +144,13 @@ private:
     struct CachedData {
         void* data;
         unsigned int size;
+        bool is_inactive;
+        std::list<std::string>::iterator lru_it;
     };
     static std::unordered_map<std::string, CachedData> cache;
+
+    static std::list<std::string> inactive_lru;
+    static unsigned int inactive_cache_bytes;
 
     // Normalize a file path (lowercase, forward slashes)
     static std::string Normalize_Path(const char* path);

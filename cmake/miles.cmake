@@ -10,10 +10,13 @@ FetchContent_Declare(
 if(EMSCRIPTEN)
     FetchContent_Populate(miles)
     if(NOT TARGET milesstub)
-        add_library(milesstub STATIC ${miles_SOURCE_DIR}/miles.c)
+        add_library(milesstub STATIC ${CMAKE_SOURCE_DIR}/Core/Libraries/Source/WebAudioBridge/web_audio_bridge.cpp)
         target_include_directories(milesstub PUBLIC
             ${miles_SOURCE_DIR}
             ${miles_SOURCE_DIR}/mss
+            ${CMAKE_SOURCE_DIR}/Core/GameEngine/Include
+            ${CMAKE_SOURCE_DIR}/Core/Libraries/Include
+            ${CMAKE_SOURCE_DIR}/Dependencies/Utility
         )
         target_compile_definitions(milesstub PUBLIC BUILD_STUBS)
     endif()

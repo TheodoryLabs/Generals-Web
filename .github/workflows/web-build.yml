@@ -1,0 +1,81 @@
+name: Web Build
+
+# Builds the WebAssembly/WebGL 2.0 port (Zero Hour) with the pinned Emscripten
+# toolchain and uploads GeneralsZH.{html,js,wasm} as artifacts. This is the
+# flagship CI job: if it is green, a stranger can reproduce the build from
+# BUILDING.md.
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Keep in sync with BUILDING.md. Historic builds used 3.1.74.
+  EMSDK_VERSION: 6.0.2
+
+jobs:
+  build-web:
+    name: Emscripten Build (GeneralsMD / Zero Hour)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+
+      - name: Set up Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ env.EMSDK_VERSION }}
+          actions-cache-folder: emsdk-cache
+
+      - name: Configure (emcmake + web.cmake)
+        # -G Ninja must be explicit, and CMAKE_PROJECT_INCLUDE must be an
+        # absolute path — both are load-bearing (see BUILDING.md).
+        run: |
+          emcmake cmake -G Ninja -B build-web \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DRTS_GAME=GeneralsMD \
+            -DRTS_PLATFORM=web \
+            -DCMAKE_PROJECT_INCLUDE=$PWD/cmake/web.cmake
+
+      - name: Build z_generals
+        run: ninja -C build-web z_generals
+
+      - name: Verify Outputs
+        run: |
+          set -e
+          for f in GeneralsZH.html GeneralsZH.js GeneralsZH.wasm; do
+            if [ ! -f "build-web/GeneralsMD/$f" ]; then
+              echo "::error::Expected build output missing: build-web/GeneralsMD/$f"
+              exit 1
+            fi
+          done
+          ls -la build-web/GeneralsMD/GeneralsZH.*
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: GeneralsZH-web
+          if-no-files-found: error
+          path: |
+            build-web/GeneralsMD/GeneralsZH.html
+            build-web/GeneralsMD/GeneralsZH.js
+            build-web/GeneralsMD/GeneralsZH.wasm

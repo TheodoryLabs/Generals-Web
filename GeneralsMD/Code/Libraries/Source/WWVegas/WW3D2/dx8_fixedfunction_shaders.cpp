@@ -52,12 +52,14 @@ layout(location = 3) in vec2 a_TexCoord0;
 layout(location = 4) in vec2 a_TexCoord1;
 layout(location = 5) in vec2 a_TexCoord2;
 layout(location = 6) in vec2 a_TexCoord3;
+layout(location = 7) in mat4 a_InstanceWorld; // Instanced matrix layout locations 7, 8, 9, 10
 
 // Transform matrices
 uniform mat4 u_World;
 uniform mat4 u_View;
 uniform mat4 u_Projection;
 uniform mat4 u_TexMatrix0;
+uniform bool u_InstancingEnabled;
 
 // Material
 uniform vec4 u_MatDiffuse;
@@ -101,10 +103,16 @@ out vec2 v_TexCoord3;
 out float v_FogFactor;
 
 void main() {
+    mat4 worldMat = u_World;
+    if (u_InstancingEnabled) {
+        worldMat = a_InstanceWorld;
+    }
     // Transform position through World * View * Projection
-    vec4 worldPos = u_World * vec4(a_Position, 1.0);
+    vec4 worldPos = worldMat * vec4(a_Position, 1.0);
     vec4 viewPos = u_View * worldPos;
     gl_Position = u_Projection * viewPos;
+    // Map D3D projection depth [0, w] to OpenGL ES clip space depth [-w, w]
+    gl_Position.z = gl_Position.z * 2.0 - gl_Position.w;
 
     // BGRA → RGBA swizzle for vertex color
     // DX8 stores vertex colors as BGRA in memory. When read as GL_UNSIGNED_BYTE
@@ -120,15 +128,16 @@ void main() {
 
     // Compute lighting
     if (u_LightingEnabled) {
-        mat3 worldNormalMatrix = mat3(u_World);
+        mat3 worldNormalMatrix = mat3(worldMat);
         vec3 worldNormal = normalize(worldNormalMatrix * a_Normal);
 
         // Start with emissive material color
         vec4 totalDiffuse = u_MatEmissive;
 
         // Global ambient contribution
-        vec4 ambient = u_GlobalAmbient.x > 0.0 ? u_MatAmbient * u_GlobalAmbient
-                                                 : u_MatAmbient * vec4(0.2, 0.2, 0.2, 1.0);
+        // DX8 COLORVERTEX: when enabled, vertex color also replaces material ambient
+        vec4 matAmb = u_ColorVertex ? vertexColor : u_MatAmbient;
+        vec4 ambient = matAmb * u_GlobalAmbient;
 
         // Per-light contribution
         for (int i = 0; i < 4; i++) {
@@ -224,9 +233,13 @@ uniform int u_AlphaFunc;          // D3DCMPFUNC enum value
 // For efficiency, we encode the active stage count and common ops as uniforms
 uniform int u_TextureStageCount;
 
+// D3DRS_TEXTUREFACTOR
+uniform vec4 u_TextureFactor;
+
 // Per-stage color/alpha operation (D3DTEXTUREOP)
 // 1=DISABLE, 2=SELECTARG1, 3=SELECTARG2, 4=MODULATE, 5=MODULATE2X,
-// 7=ADD, 13=DOTPRODUCT3, 25=MODULATE4X
+// 6=MODULATE4X, 7=ADD, 8=ADDSIGNED, 9=ADDSIGNED2X, 13=BLENDTEXTUREALPHA,
+// 16=BLENDCURRENTALPHA, 18=MODULATEALPHA_ADDCOLOR, 24=DOTPRODUCT3, 25=MULTIPLYADD
 uniform int u_Stage0_ColorOp;
 uniform int u_Stage1_ColorOp;
 uniform int u_Stage0_AlphaOp;
@@ -252,23 +265,36 @@ bool alpha_test(float alpha) {
 }
 
 // Apply a texture stage color operation
-vec3 apply_color_op(int op, vec3 arg1, vec3 arg2) {
-    if (op <= 1) return arg1;            // DISABLE → pass through
-    if (op == 2) return arg1;            // SELECTARG1
-    if (op == 3) return arg2;            // SELECTARG2
-    if (op == 4) return arg1 * arg2;     // MODULATE
-    if (op == 5) return arg1 * arg2 * 2.0; // MODULATE2X
-    if (op == 7) return arg1 + arg2;     // ADD
-    if (op == 25) return arg1 * arg2 * 4.0; // MODULATE4X
-    return arg1 * arg2;                  // default: MODULATE
+vec3 apply_color_op(int op, vec4 arg1, vec4 arg2) {
+    if (op <= 1) return arg2.rgb;            // DISABLE → pass through
+    if (op == 2) return arg1.rgb;            // SELECTARG1
+    if (op == 3) return arg2.rgb;            // SELECTARG2
+    if (op == 4) return arg1.rgb * arg2.rgb;     // MODULATE
+    if (op == 5) return arg1.rgb * arg2.rgb * 2.0; // MODULATE2X
+    if (op == 6) return arg1.rgb * arg2.rgb * 4.0; // MODULATE4X
+    if (op == 7) return arg1.rgb + arg2.rgb;     // ADD
+    if (op == 8) return clamp(arg1.rgb + arg2.rgb - vec3(0.5), 0.0, 1.0); // ADDSIGNED
+    if (op == 9) return clamp((arg1.rgb + arg2.rgb - vec3(0.5)) * 2.0, 0.0, 1.0); // ADDSIGNED2X
+    if (op == 13) return mix(arg2.rgb, arg1.rgb, arg1.a); // BLENDTEXTUREALPHA
+    if (op == 16) return mix(arg2.rgb, arg1.rgb, arg2.a); // BLENDCURRENTALPHA
+    if (op == 18) return clamp(arg1.rgb * arg2.a + arg2.rgb, 0.0, 1.0); // MODULATEALPHA_ADDCOLOR
+    if (op == 24) { // DOTPRODUCT3
+        float dp = 4.0 * dot(arg2.rgb - vec3(0.5), u_TextureFactor.rgb - vec3(0.5));
+        return vec3(dp);
+    }
+    if (op == 25) { // MULTIPLYADD
+        return vec3(u_TextureFactor.a) * arg1.rgb + vec3(u_TextureFactor.a);
+    }
+    return arg1.rgb * arg2.rgb;                  // default: MODULATE
 }
 
 // Apply a texture stage alpha operation
 float apply_alpha_op(int op, float arg1, float arg2) {
-    if (op <= 1) return arg1;
+    if (op <= 1) return arg2;
     if (op == 2) return arg1;            // SELECTARG1
     if (op == 3) return arg2;            // SELECTARG2
     if (op == 4) return arg1 * arg2;     // MODULATE
+    if (op == 7) return clamp(arg1 + arg2, 0.0, 1.0); // ADD
     return arg1 * arg2;
 }
 
@@ -279,14 +305,14 @@ void main() {
     if (u_TextureStageCount >= 1) {
         vec4 tex0 = texture(u_Texture0, v_TexCoord0);
         // Default operation: MODULATE (texture × diffuse)
-        color.rgb = apply_color_op(u_Stage0_ColorOp, tex0.rgb, color.rgb);
+        color.rgb = apply_color_op(u_Stage0_ColorOp, tex0, color);
         color.a   = apply_alpha_op(u_Stage0_AlphaOp, tex0.a, color.a);
     }
 
     // --- Texture Stage 1 (lightmaps, detail textures) ---
     if (u_TextureStageCount >= 2) {
         vec4 tex1 = texture(u_Texture1, v_TexCoord1);
-        color.rgb = apply_color_op(u_Stage1_ColorOp, tex1.rgb, color.rgb);
+        color.rgb = apply_color_op(u_Stage1_ColorOp, tex1, color);
         color.a   = apply_alpha_op(u_Stage1_AlphaOp, tex1.a, color.a);
     }
 

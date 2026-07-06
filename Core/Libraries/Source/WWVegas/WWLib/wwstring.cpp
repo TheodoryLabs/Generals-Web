@@ -196,9 +196,12 @@ StringClass::Free_String ()
 	if (m_Buffer != m_EmptyString) {
 
 		uintptr_t buffer_base=reinterpret_cast<uintptr_t>(m_Buffer-sizeof (StringClass::_HEADER));
-		uintptr_t temp_base=reinterpret_cast<uintptr_t>(m_TempStrings+MAX_TEMP_BYTES*MAX_TEMP_STRING);
+		uintptr_t temp_start=reinterpret_cast<uintptr_t>(m_TempStrings);
+		temp_start+=MAX_TEMP_BYTES*MAX_TEMP_STRING;
+		temp_start&=~(MAX_TEMP_BYTES*MAX_TEMP_STRING-1);
+		uintptr_t temp_end=temp_start+MAX_TEMP_BYTES*MAX_TEMP_STRING;
 
-		if ((buffer_base>>11)==(temp_base>>11)) {
+		if (buffer_base >= temp_start && buffer_base < temp_end) {
 			m_Buffer[0] = 0;
 
 			//
@@ -207,7 +210,7 @@ StringClass::Free_String ()
 			//
 			FastCriticalSectionClass::LockClass m(m_Mutex);
 
-			unsigned index=(buffer_base/MAX_TEMP_BYTES)&(MAX_TEMP_STRING-1);
+			unsigned index=(buffer_base-temp_start)/MAX_TEMP_BYTES;
 			unsigned mask=1<<index;
 			ReservedMask&=~mask;
 		}

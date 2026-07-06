@@ -93,7 +93,7 @@ void userMemoryAdjustPoolSize(const char *poolName, Int& initialAllocationCount,
 //-----------------------------------------------------------------------------
 static Int roundUpMemBound(Int i)
 {
-	const int MEM_BOUND_ALIGNMENT = 4;
+	const int MEM_BOUND_ALIGNMENT = 8;
 
 	if (i < MEM_BOUND_ALIGNMENT)
 		return MEM_BOUND_ALIGNMENT;

@@ -923,7 +923,37 @@ inline int TerminateThread(HANDLE a, unsigned long b) { return 1; }
 #ifndef OutputDebugString
 #define OutputDebugString(a) printf("%s", a)
 #endif
+// CreateDirectory on Emscripten: actually mkdir the path so that
+// IDBFS-mounted directories (e.g., /userdata/Save) exist when the engine
+// later tries to fopen save files inside them. We normalize backslashes to
+// forward slashes inline because the engine builds paths with backslashes.
+// Returns non-zero on success (matches Win32 BOOL convention loosely — the
+// engine doesn't check the return anyway).
+// GeneralsX @feature WebPort 2026-05-04 — IDBFS persistence (CreateDirectory)
+#ifdef __EMSCRIPTEN__
+#include <sys/stat.h>
+#include <errno.h>
+inline int GX_CreateDirectory_Web(const char *path) {
+  if (!path || !*path) return 0;
+  char buf[1024];
+  size_t len = strlen(path);
+  if (len >= sizeof(buf)) return 0;
+  for (size_t i = 0; i < len; ++i) {
+    buf[i] = (path[i] == '\\') ? '/' : path[i];
+  }
+  buf[len] = '\0';
+  // Strip a trailing slash so mkdir doesn't get confused by `/userdata/`.
+  while (len > 1 && buf[len - 1] == '/') {
+    buf[--len] = '\0';
+  }
+  if (mkdir(buf, 0755) == 0) return 1;
+  if (errno == EEXIST) return 1;  // matches Win32 ERROR_ALREADY_EXISTS path
+  return 0;
+}
+#define CreateDirectory(a, b) GX_CreateDirectory_Web(a)
+#else
 #define CreateDirectory(a, b) 0
+#endif
 struct hostent;
 typedef struct hostent HOSTENT;
 #define CopyFile(a, b, c) 0
@@ -1067,7 +1097,24 @@ inline BOOL TranslateMessage(const MSG *) { return 0; }
 inline LRESULT DispatchMessage(const MSG *) { return 0; }
 
 typedef HANDLE HCURSOR;
+
+// SetCursor stub — engine convention is:
+//   SetCursor(nullptr) → "I will draw the cursor myself; hide the system one"
+//   SetCursor(non-null) → "show the system cursor as a fallback"
+// On Emscripten we route that signal to the canvas via EmscriptenInput so the
+// CSS cursor reflects the engine's intent. The native HCURSOR value is
+// meaningless on the web (LoadCursorFromFile returns a fixed sentinel); we
+// only care about null vs. non-null.
+// GeneralsX @feature WebPort 2026-05-04 — cursor visibility
+#ifdef __EMSCRIPTEN__
+extern "C" void EmscriptenInput_SetCanvasCursor(int visible);
+inline HCURSOR SetCursor(HCURSOR h) {
+  EmscriptenInput_SetCanvasCursor(h ? 1 : 0);
+  return 0;
+}
+#else
 inline HCURSOR SetCursor(HCURSOR) { return 0; }
+#endif
 inline BOOL GetCursorPos(POINT *lpPoint) {
   if (lpPoint) {
     lpPoint->x = 0;

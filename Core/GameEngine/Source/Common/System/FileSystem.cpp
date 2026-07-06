@@ -175,6 +175,27 @@ File*		FileSystem::openFile( const Char *filename, Int access, size_t bufferSize
 	USE_PERF_TIMER(FileSystem)
 	File *file = nullptr;
 
+#ifdef __EMSCRIPTEN__
+	// GX-TRACE — only log map-related opens to keep noise down. The WHM/
+	// ParseSize tracers do the precise localisation; everything else is
+	// just confirming the high-level flow.
+	if (filename) {
+		bool log_it = false;
+		for (const char *p = filename; *p; ++p) {
+			const char a = (char)((*p) | 0x20);
+			if (a=='s' && (p[1]|0x20)=='h' && (p[2]|0x20)=='e' && (p[3]|0x20)=='l' && (p[4]|0x20)=='l') { log_it = true; break; }
+			if (a=='m' && (p[1]|0x20)=='a' && (p[2]|0x20)=='p' && (p[3]=='.' || p[3]=='\\' || p[3]=='/' )) { log_it = true; break; }
+		}
+		if (log_it) {
+			FILE *trace = fopen("/gx_trace.log", "a");
+			if (trace) {
+				fprintf(trace, "OPEN fn='%s' access=%d\n", filename, access);
+				fclose(trace);
+			}
+		}
+	}
+#endif
+
 	if ( TheLocalFileSystem != nullptr )
 	{
 		if (instance != 0)
@@ -213,6 +234,25 @@ File*		FileSystem::openFile( const Char *filename, Int access, size_t bufferSize
 		// TheSuperHackers @todo Pass 'access' here?
 		file = TheArchiveFileSystem->openFile( filename, 0, instance );
 	}
+
+#ifdef __EMSCRIPTEN__
+	if (filename) {
+		bool log_it = false;
+		for (const char *p = filename; *p; ++p) {
+			const char a = (char)((*p) | 0x20);
+			if (a=='s' && (p[1]|0x20)=='h' && (p[2]|0x20)=='e' && (p[3]|0x20)=='l' && (p[4]|0x20)=='l') { log_it = true; break; }
+			if (a=='m' && (p[1]|0x20)=='a' && (p[2]|0x20)=='p' && (p[3]=='.' || p[3]=='\\' || p[3]=='/' )) { log_it = true; break; }
+		}
+		if (log_it) {
+			FILE *trace = fopen("/gx_trace.log", "a");
+			if (trace) {
+				fprintf(trace, "RES fn='%s' file=%p\n",
+				        filename, (void*)file);
+				fclose(trace);
+			}
+		}
+	}
+#endif
 
 	return file;
 }

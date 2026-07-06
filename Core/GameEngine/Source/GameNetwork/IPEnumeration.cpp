@@ -28,6 +28,12 @@
 #include "GameNetwork/networkutil.h"
 #include "GameClient/ClientInstance.h"
 
+extern bool g_useVirtualNetworking;
+extern unsigned char g_virtualIP_a;
+extern unsigned char g_virtualIP_b;
+extern unsigned char g_virtualIP_c;
+extern unsigned char g_virtualIP_d;
+
 IPEnumeration::IPEnumeration()
 {
 	m_IPlist = nullptr;
@@ -55,6 +61,12 @@ EnumeratedIP * IPEnumeration::getAddresses()
 {
 	if (m_IPlist)
 		return m_IPlist;
+
+	if (g_useVirtualNetworking)
+	{
+		addNewIP(g_virtualIP_a, g_virtualIP_b, g_virtualIP_c, g_virtualIP_d);
+		return m_IPlist;
+	}
 
 	if (!m_isWinsockInitialized)
 	{
@@ -165,6 +177,12 @@ void IPEnumeration::addNewIP( UnsignedByte a, UnsignedByte b, UnsignedByte c, Un
 
 AsciiString IPEnumeration::getMachineName()
 {
+	if (g_useVirtualNetworking)
+	{
+		AsciiString str;
+		str.format("VirtualMachine_%d_%d_%d_%d", (int)g_virtualIP_a, (int)g_virtualIP_b, (int)g_virtualIP_c, (int)g_virtualIP_d);
+		return str;
+	}
 	if (!m_isWinsockInitialized)
 	{
 		WORD verReq = MAKEWORD(2, 2);

@@ -35,6 +35,13 @@
 #include "Common/GameEngine.h"
 // #include "GameNetwork/NetworkInterface.h"
 #include "GameNetwork/udp.h"
+#include "GameNetwork/networkutil.h"
+
+#include <queue>
+#include <vector>
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 
 //-------------------------------------------------------------------------
 
@@ -113,6 +120,48 @@ AsciiString GetWSAErrorString(Int error) {
 
 //-------------------------------------------------------------------------
 
+#ifndef EMSCRIPTEN_KEEPALIVE
+#define EMSCRIPTEN_KEEPALIVE
+#endif
+
+struct VirtualPacket {
+  std::vector<unsigned char> data;
+  unsigned int fromIP;
+  unsigned short fromPort;
+};
+
+static std::queue<VirtualPacket> g_virtualPacketQueue;
+bool g_useVirtualNetworking = false;
+unsigned char g_virtualIP_a = 127;
+unsigned char g_virtualIP_b = 0;
+unsigned char g_virtualIP_c = 0;
+unsigned char g_virtualIP_d = 1;
+
+extern "C" {
+  EMSCRIPTEN_KEEPALIVE void GX_Network_EnableVirtual(bool enable) {
+    g_useVirtualNetworking = enable;
+    while (!g_virtualPacketQueue.empty()) {
+      g_virtualPacketQueue.pop();
+    }
+  }
+
+  EMSCRIPTEN_KEEPALIVE void GX_Network_SetVirtualIP(unsigned char a, unsigned char b, unsigned char c, unsigned char d) {
+    g_virtualIP_a = a;
+    g_virtualIP_b = b;
+    g_virtualIP_c = c;
+    g_virtualIP_d = d;
+  }
+
+  EMSCRIPTEN_KEEPALIVE void GX_Network_PushPacket(const unsigned char *data, int len, unsigned int fromIP, unsigned short fromPort) {
+    if (!g_useVirtualNetworking) return;
+    VirtualPacket packet;
+    packet.data.assign(data, data + len);
+    packet.fromIP = fromIP;
+    packet.fromPort = fromPort;
+    g_virtualPacketQueue.push(packet);
+  }
+}
+
 UDP::UDP() { fd = 0; }
 
 UDP::~UDP() {
@@ -137,6 +186,16 @@ Int UDP::Bind(const char *Host, UnsignedShort port) {
 // You must call bind, implicit binding is for sissies
 //   Well... you can get implicit binding if you pass 0 for either arg
 Int UDP::Bind(UnsignedInt IP, UnsignedShort Port) {
+  if (g_useVirtualNetworking) {
+    fd = 9999; // Mock file descriptor
+    myIP = IP ? IP : AssembleIp(g_virtualIP_a, g_virtualIP_b, g_virtualIP_c, g_virtualIP_d);
+    myPort = Port ? Port : 50000;
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(myPort);
+    addr.sin_addr.s_addr = htonl(myIP);
+    return (OK);
+  }
+
   int retval;
   int status;
 
@@ -215,6 +274,20 @@ Int UDP::SetBlocking(Int block) {
 
 Int UDP::Write(const unsigned char *msg, UnsignedInt len, UnsignedInt IP,
                UnsignedShort port) {
+  if (g_useVirtualNetworking) {
+#ifdef __EMSCRIPTEN__
+    EM_ASM({
+      if (typeof window !== 'undefined' && window['GeneralsX'] &&
+          typeof window['GeneralsX']['onSendPacket'] === 'function') {
+        var data = new Uint8Array(Module.HEAPU8.buffer, $0, $1);
+        var copy = new Uint8Array(data);
+        window['GeneralsX']['onSendPacket'](copy, $2, $3);
+      }
+    }, msg, len, IP, port);
+#endif
+    return (Int)len;
+  }
+
   Int retval;
   struct sockaddr_in to;
 
@@ -249,6 +322,28 @@ Int UDP::Write(const unsigned char *msg, UnsignedInt len, UnsignedInt IP,
 }
 
 Int UDP::Read(unsigned char *msg, UnsignedInt len, sockaddr_in *from) {
+  if (g_useVirtualNetworking) {
+    if (g_virtualPacketQueue.empty()) {
+      return 0; // No data available
+    }
+    VirtualPacket packet = g_virtualPacketQueue.front();
+    g_virtualPacketQueue.pop();
+
+    unsigned int toCopy = packet.data.size();
+    if (toCopy > len) {
+      toCopy = len;
+    }
+    memcpy(msg, packet.data.data(), toCopy);
+
+    if (from != nullptr) {
+      memset(from, 0, sizeof(sockaddr_in));
+      from->sin_family = AF_INET;
+      from->sin_port = htons(packet.fromPort);
+      from->sin_addr.s_addr = htonl(packet.fromIP);
+    }
+    return (Int)toCopy;
+  }
+
   Int retval;
   int alen = sizeof(sockaddr_in);
 

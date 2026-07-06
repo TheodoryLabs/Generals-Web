@@ -53,6 +53,10 @@
 
 #include "Common/GlobalData.h"			// for camera pitch angle only
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 LookAtTranslator *TheLookAtTranslator = nullptr;
 
 enum
@@ -77,7 +81,15 @@ static Bool scrollDir[4] = { false, false, false, false };
 constexpr const Real SCROLL_MULTIPLIER = 2.0f;
 constexpr const Real SCROLL_AMT = 100.0f * SCROLL_MULTIPLIER;
 
-static const Int edgeScrollSize = 3;
+static Int getEdgeScrollSize() {
+#ifdef __EMSCRIPTEN__
+  return EM_ASM_INT({
+    return (window.GeneralsX && window.GeneralsX.settings) ? window.GeneralsX.settings.edgeScrollZone : 20;
+  });
+#else
+  return 3;
+#endif
+}
 
 static Mouse::MouseCursor prevCursor = Mouse::ARROW;
 
@@ -114,6 +126,13 @@ void LookAtTranslator::stopScrolling()
 //-----------------------------------------------------------------------------
 Bool LookAtTranslator::canScrollAtScreenEdge() const
 {
+#ifdef __EMSCRIPTEN__
+	int enabled = EM_ASM_INT({
+		return (window.GeneralsX && window.GeneralsX.settings && window.GeneralsX.settings.edgeScroll) ? 1 : 0;
+	});
+	if (!enabled) return false;
+	return TheMouse->isCursorCaptured();
+#else
 	if (!TheMouse->isCursorCaptured())
 		return false;
 
@@ -129,6 +148,7 @@ Bool LookAtTranslator::canScrollAtScreenEdge() const
 	}
 
 	return true;
+#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -344,14 +364,16 @@ GameMessageDisposition LookAtTranslator::translateGameMessage(const GameMessage 
 			{
 				if (m_isScrolling)
 				{
-					if ( m_scrollType == SCROLL_SCREENEDGE && (m_currentPos.x >= edgeScrollSize && m_currentPos.y >= edgeScrollSize && m_currentPos.y < height-edgeScrollSize && m_currentPos.x < width-edgeScrollSize) )
+					const int scrollSize = getEdgeScrollSize();
+					if ( m_scrollType == SCROLL_SCREENEDGE && (m_currentPos.x >= scrollSize && m_currentPos.y >= scrollSize && m_currentPos.y < height-scrollSize && m_currentPos.x < width-scrollSize) )
 					{
 						stopScrolling();
 					}
 				}
 				else
 				{
-					if ( m_currentPos.x < edgeScrollSize || m_currentPos.y < edgeScrollSize || m_currentPos.y >= height-edgeScrollSize || m_currentPos.x >= width-edgeScrollSize )
+					const int scrollSize = getEdgeScrollSize();
+					if ( m_currentPos.x < scrollSize || m_currentPos.y < scrollSize || m_currentPos.y >= height-scrollSize || m_currentPos.x >= width-scrollSize )
 					{
 						setScrolling(SCROLL_SCREENEDGE);
 					}
@@ -494,19 +516,20 @@ GameMessageDisposition LookAtTranslator::translateGameMessage(const GameMessage 
 					{
 						UnsignedInt height = TheDisplay->getHeight();
 						UnsignedInt width  = TheDisplay->getWidth();
-						if (m_currentPos.y < edgeScrollSize)
+						const int scrollSize = getEdgeScrollSize();
+						if (m_currentPos.y < scrollSize)
 						{
 							offset.y -= TheGlobalData->m_verticalScrollSpeedFactor * fpsRatio * SCROLL_AMT * TheGlobalData->m_keyboardScrollFactor;
 						}
-						if (m_currentPos.y >= height-edgeScrollSize)
+						if (m_currentPos.y >= height-scrollSize)
 						{
 							offset.y += TheGlobalData->m_verticalScrollSpeedFactor * fpsRatio * SCROLL_AMT * TheGlobalData->m_keyboardScrollFactor;
 						}
-						if (m_currentPos.x < edgeScrollSize)
+						if (m_currentPos.x < scrollSize)
 						{
 							offset.x -= TheGlobalData->m_horizontalScrollSpeedFactor * fpsRatio * SCROLL_AMT * TheGlobalData->m_keyboardScrollFactor;
 						}
-						if (m_currentPos.x >= width-edgeScrollSize)
+						if (m_currentPos.x >= width-scrollSize)
 						{
 							offset.x += TheGlobalData->m_horizontalScrollSpeedFactor * fpsRatio * SCROLL_AMT * TheGlobalData->m_keyboardScrollFactor;
 						}

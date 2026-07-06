@@ -243,11 +243,14 @@ Bool WindowLayout::load( AsciiString filename )
 	m_filenameString = filename;
 
 	// assign script info to the layout
+	fprintf(stderr, "GX-TRACE: Loaded layout '%s', init=%p (name='%s'), update=%p (name='%s'), shutdown=%p (name='%s')\n",
+		filename.str(), (void*)info.init, info.initNameString.str(), (void*)info.update, info.updateNameString.str(), (void*)info.shutdown, info.shutdownNameString.str());
 	setInit( info.init );
 	setUpdate( info.update );
 	setShutdown( info.shutdown );
 
 	return TRUE;  // success
+
 
 }
 

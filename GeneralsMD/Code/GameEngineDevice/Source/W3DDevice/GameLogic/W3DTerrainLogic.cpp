@@ -112,38 +112,59 @@ Note - if query is true, we are  */
 //-------------------------------------------------------------------------------------------------
 Bool W3DTerrainLogic::loadMap( AsciiString filename , Bool query )
 {
+#ifdef __EMSCRIPTEN__
+#define GX_W3D(tag) do { \
+	FILE *_t = fopen("/gx_trace.log", "a"); \
+	if (_t) { fprintf(_t, "GX-TRACE: W3DTerrainLogic::loadMap:%s file='%s' query=%d\n", \
+		tag, filename.str(), (int)query); fclose(_t); } \
+} while (0)
+	GX_W3D("ENTER");
+#else
+#define GX_W3D(tag) ((void)0)
+#endif
+
 	if(!TheMapCache)
 		return FALSE;
+
+	GX_W3D("PAST-MapCache-check");
 
 	WorldHeightMap *terrainHeightMap;				///< holds raw heightmap data samples
 
 	CachedFileInputStream fileStrm;
+	GX_W3D("BEFORE-fileStrm-open");
 	if ( !fileStrm.open(filename) )
 	{
+		GX_W3D("FILESTRM-OPEN-FAILED");
 		return FALSE;
 	}
+	GX_W3D("AFTER-fileStrm-open");
 
 	ChunkInputStream *pStrm = &fileStrm;
 
+	GX_W3D("BEFORE-WorldHeightMap-new");
 	// allocate new height map data to read from file
 	// this will be a dummy object only containing logical map data
 	terrainHeightMap = NEW WorldHeightMap(pStrm, true);
+	GX_W3D("AFTER-WorldHeightMap-new");
 
 	if (terrainHeightMap)
 	{	//copy loaded data
 		// Get the whole map, because we don't know which boundary is active yet
 		m_mapDX=terrainHeightMap->getXExtent();
 		m_mapDY=terrainHeightMap->getYExtent();
+		GX_W3D("PAST-extent-fetch");
 
 		// now, get all the boundaries, and set the current active boundary to boundary 0.
 		m_boundaries = terrainHeightMap->getAllBoundaries();
 		m_activeBoundary = 0;
+		GX_W3D("PAST-boundaries-fetch");
 
 		Int i, j, minHt, maxHt;
 
 		minHt = terrainHeightMap->getMaxHeightValue();
 		maxHt = 0;
 
+		GX_W3D("BEFORE-height-scan");
 		for (j=0; j<m_mapDY; j++) {
 			for (i=0; i<m_mapDX; i++) {
 				Short cur = terrainHeightMap->getHeight(i,j);
@@ -151,25 +172,38 @@ Bool W3DTerrainLogic::loadMap( AsciiString filename , Bool query )
 				if (maxHt<cur) maxHt = cur;
 			}
 		}
+		GX_W3D("AFTER-height-scan");
 		m_mapMinZ = minHt * MAP_HEIGHT_SCALE;
 		m_mapMaxZ = maxHt * MAP_HEIGHT_SCALE;
 		//release temporary object used for loading height values
 		REF_PTR_RELEASE(terrainHeightMap);
+		GX_W3D("PAST-heightmap-release");
 	}
 	else
+	{
+		GX_W3D("HEIGHTMAP-NULL");
 		return FALSE;	//could not create heightmap object.  File not found?
+	}
 
+	GX_W3D("BEFORE-base-loadMap");
 	// Note - It is very important that this get called AFTER the map is read in.  jba.
 	// enhancing functionality
 	if( TerrainLogic::loadMap( filename, query ) == false )
+	{
+		GX_W3D("BASE-loadMap-FAILED");
 		return FALSE;
+	}
+	GX_W3D("AFTER-base-loadMap");
 
 	// Map file now contains lighting & time of day info.
 	if( TheWritableGlobalData->setTimeOfDay( TheGlobalData->m_timeOfDay ) )
 		TheGameClient->setTimeOfDay( TheGlobalData->m_timeOfDay );
 
+	GX_W3D("RETURN-TRUE");
 	return TRUE;  // success
-
+#ifdef __EMSCRIPTEN__
+#undef GX_W3D
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------

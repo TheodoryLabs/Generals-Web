@@ -551,6 +551,10 @@ AsciiString GameState::findNextSaveFilename( UnicodeString desc )
 /** Save the current state of the engine in a save file
 	* NOTE: filename is a *filename only* */
 // ------------------------------------------------------------------------------------------------
+#ifdef PLATFORM_WEB
+extern "C" void GX_FlushIdbfs_Tab(const char *reason);
+#endif
+
 SaveCode GameState::saveGame( AsciiString filename, UnicodeString desc,
 															SaveFileType saveType, SnapshotType which )
 {
@@ -627,6 +631,10 @@ SaveCode GameState::saveGame( AsciiString filename, UnicodeString desc,
 
 	// close the file
 	xferSave.close();
+
+#ifdef PLATFORM_WEB
+	GX_FlushIdbfs_Tab("save");
+#endif
 
 	// print message to the user for game successfully saved
 	UnicodeString msg = TheGameText->fetch( "GUI:GameSaveComplete" );

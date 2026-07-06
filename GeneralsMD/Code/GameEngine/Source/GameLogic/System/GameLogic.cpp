@@ -1102,6 +1102,16 @@ void GameLogic::setGameMode( GameMode mode )
 // ------------------------------------------------------------------------------------------------
 void GameLogic::startNewGame( Bool loadingSaveGame )
 {
+#ifdef __EMSCRIPTEN__
+#define GX_TRACE(tag) do { \
+	FILE *_t = fopen("/gx_trace.log", "a"); \
+	if (_t) { fprintf(_t, "GX-TRACE: startNewGame:%s mode=%d save=%d\n", \
+		tag, (int)m_gameMode, (int)loadingSaveGame); fclose(_t); } \
+} while (0)
+	GX_TRACE("ENTER");
+#else
+#define GX_TRACE(tag) ((void)0)
+#endif
 
 	#ifdef DUMP_PERF_STATS
 	__int64 startTime64;
@@ -1163,11 +1173,13 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
 			}
 
 			m_startNewGame = TRUE;
+			GX_TRACE("EARLY-RETURN-startNewGame=TRUE");
 			return;
 
 		}
 
 	}
+	GX_TRACE("PAST-EARLY-RETURN");
 
 	m_rankLevelLimit = 1000;	// this is reset every game.
 
@@ -1265,13 +1277,17 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
 	// Get the m_loadScreen for this kind of game
 	if(!m_loadScreen && !(TheRecorder && TheRecorder->getMode() == RECORDERMODETYPE_SIMULATION_PLAYBACK))
 	{
+		GX_TRACE("BEFORE-getLoadScreen");
 		m_loadScreen = getLoadScreen( loadingSaveGame );
 		if(m_loadScreen)
 		{
+			GX_TRACE("BEFORE-loadScreen-init");
 			TheMouse->setVisibility(FALSE);
 			m_loadScreen->init(TheGameInfo);
+			GX_TRACE("AFTER-loadScreen-init");
 
 			updateLoadProgress( LOAD_PROGRESS_START );
+			GX_TRACE("AFTER-LOAD_PROGRESS_START");
 		}
 	}
 	if(m_background)
@@ -1292,10 +1308,14 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
 	DEBUG_ASSERTCRASH(m_frame == 0, ("framecounter expected to be 0 here"));
 
 	// before loading the map, load the map.ini file in the same directory.
+	GX_TRACE("BEFORE-loadMapINI");
 	loadMapINI( TheGlobalData->m_mapName );
+	GX_TRACE("AFTER-loadMapINI");
 
 	// load a map
+	GX_TRACE("BEFORE-TerrainLogic-loadMap");
 	TheTerrainLogic->loadMap( TheGlobalData->m_mapName, false );
+	GX_TRACE("AFTER-TerrainLogic-loadMap");
 	// anytime the world's size changes, must reset the partition mgr
 	//ThePartitionManager->init();
 

@@ -150,6 +150,10 @@ Bool UserPreferences::load(AsciiString fname)
 	return false;
 }
 
+#ifdef PLATFORM_WEB
+extern "C" void GX_FlushIdbfs_Tab(const char *reason);
+#endif
+
 Bool UserPreferences::write()
 {
 	if (m_filename.isEmpty())
@@ -165,6 +169,9 @@ Bool UserPreferences::write()
 			++it;
 		}
 		fclose(fp);
+#ifdef PLATFORM_WEB
+		GX_FlushIdbfs_Tab("options");
+#endif
 		return true;
 	}
 	return false;

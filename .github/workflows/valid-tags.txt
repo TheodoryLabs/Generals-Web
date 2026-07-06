@@ -2,9 +2,10 @@ bugfix
 build
 chore
 ci
+diag
 docs
-fix
 feat
+fix
 perf
 refactor
 revert
@@ -12,3 +13,4 @@ style
 test
 tweak
 unify
+webport

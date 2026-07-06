@@ -411,6 +411,8 @@ void MapCache::updateCache()
 	const AsciiString mapDir = getMapDir();
 	const AsciiString userMapDir = getUserMapDir();
 
+	fprintf(stderr, "GX-TRACE: MapCache::updateCache() started. mapDir='%s' userMapDir='%s'\n", mapDir.str(), userMapDir.str());
+
 	// Create the standard map cache if required. Is only relevant for Mod developers.
 	// TheSuperHackers @tweak This step is done before loading any other map caches to not poison the cached state.
 	if (m_doCreateStandardMapCacheINI)
@@ -426,6 +428,7 @@ void MapCache::updateCache()
 			const Bool isOfficial = TRUE;
 			const Bool filterByAllowedMaps = !m_allowedMaps.empty();
 
+			fprintf(stderr, "GX-TRACE: MapCache::updateCache() - building standard map cache...\n");
 			if (loadMapsFromDisk(mapDir, isOfficial, filterByAllowedMaps))
 			{
 				writeCacheINI(mapDir);
@@ -437,11 +440,13 @@ void MapCache::updateCache()
 	// Load user map cache first.
 	if (m_doLoadUserMapCacheINI)
 	{
+		fprintf(stderr, "GX-TRACE: MapCache::updateCache() - loading user map cache INI...\n");
 		loadMapsFromMapCacheINI(userMapDir);
 		m_doLoadUserMapCacheINI = FALSE;
 	}
 
 	// Load user maps from disk and update any discrepancies from the map cache.
+	fprintf(stderr, "GX-TRACE: MapCache::updateCache() - loading user maps from disk...\n");
 	if (loadMapsFromDisk(userMapDir, FALSE))
 	{
 		writeCacheINI(userMapDir);
@@ -452,8 +457,40 @@ void MapCache::updateCache()
 	// This overwrites matching user maps to prevent munkees getting rowdy :)
 	if (m_doLoadStandardMapCacheINI)
 	{
+		fprintf(stderr, "GX-TRACE: MapCache::updateCache() - loading standard map cache INI...\n");
 		loadMapsFromMapCacheINI(mapDir);
 		m_doLoadStandardMapCacheINI = FALSE;
+	}
+
+	fprintf(stderr, "GX-TRACE: MapCache::updateCache() finished. Total maps in cache: %u\n", (unsigned int)size());
+
+	// Test/dry-run map filtering to diagnose why the list is empty
+	{
+		fprintf(stderr, "GX-TRACE: DRY-RUN Map check start. mapDir='%s'\n", mapDir.str());
+		MapCache::iterator it = begin();
+		int count = 0;
+		int totalMp = 0;
+		int totalHasDisp = 0;
+		int totalStartsWith = 0;
+		for (; it != end(); ++it) {
+			const AsciiString &mapName = it->first;
+			const MapMetaData &mapMetaData = it->second;
+			Bool startsWithDir = mapName.startsWithNoCase(mapDir.str());
+			Bool isMp = mapMetaData.m_isMultiplayer;
+			Bool hasDisp = !mapMetaData.m_displayName.isEmpty();
+			if (startsWithDir) totalStartsWith++;
+			if (isMp) totalMp++;
+			if (hasDisp) totalHasDisp++;
+			if (count < 20) {
+				fprintf(stderr, "GX-TRACE: DRY-RUN check map '%s': startsWithDir=%d, isMp=%d, hasDisp=%d (displayName='%ls')\n",
+					mapName.str(), (int)startsWithDir, (int)isMp, (int)hasDisp, mapMetaData.m_displayName.str());
+			}
+			if (startsWithDir && isMp && hasDisp) {
+				count++;
+			}
+		}
+		fprintf(stderr, "GX-TRACE: DRY-RUN Map check end. Total startsWith=%d, totalMp=%d, totalHasDisp=%d. Total passing maps: %d\n",
+			totalStartsWith, totalMp, totalHasDisp, count);
 	}
 }
 
@@ -520,12 +557,17 @@ Bool MapCache::loadMapsFromDisk( const AsciiString &mapDir, Bool isOfficial, Boo
 	AsciiString filenamepattern;
 	filenamepattern.format("*.%s", getMapExtension().str());
 
+	fprintf(stderr, "GX-TRACE: loadMapsFromDisk: scanning directory '%s' with pattern '%s' (isOfficial=%d)\n", toplevelPattern.str(), filenamepattern.str(), (int)isOfficial);
+
 	TheFileSystem->getFileListInDirectory(toplevelPattern, filenamepattern, filepathList, TRUE);
+
+	fprintf(stderr, "GX-TRACE: loadMapsFromDisk: found %u map files\n", (unsigned int)filepathList.size());
 
 	filepathIt = filepathList.begin();
 
 	for (; filepathIt != filepathList.end(); ++filepathIt)
 	{
+		fprintf(stderr, "GX-TRACE: loadMapsFromDisk: processing map file '%s'\n", filepathIt->str());
 		FileInfo fileInfo;
 		AsciiString filepathLower = *filepathIt;
 		filepathLower.toLower();
@@ -533,6 +575,7 @@ Bool MapCache::loadMapsFromDisk( const AsciiString &mapDir, Bool isOfficial, Boo
 		const char *szFilenameLower = filepathLower.reverseFind('\\');
 		if (!szFilenameLower)
 		{
+			fprintf(stderr, "GX-TRACE: loadMapsFromDisk: error - no '\\' in path '%s'\n", filepathLower.str());
 			DEBUG_CRASH(("Couldn't find \\ in map name!"));
 			continue;
 		}
@@ -543,6 +586,7 @@ Bool MapCache::loadMapsFromDisk( const AsciiString &mapDir, Bool isOfficial, Boo
 
 		if (filterByAllowedMaps && m_allowedMaps.find(filenameLower) == m_allowedMaps.end())
 		{
+			fprintf(stderr, "GX-TRACE: loadMapsFromDisk: map '%s' filtered out\n", filenameLower.str());
 			DEBUG_CRASH(("Map '%s' has been filtered out", filenameLower.str()));
 			continue;
 		}
@@ -551,12 +595,14 @@ Bool MapCache::loadMapsFromDisk( const AsciiString &mapDir, Bool isOfficial, Boo
 
 		if (!filepathLower.endsWithNoCase(endingStr.str()))
 		{
+			fprintf(stderr, "GX-TRACE: loadMapsFromDisk: error - map '%s' in wrong spot (filepathLower='%s', endingStr='%s')\n", filenameLower.str(), filepathLower.str(), endingStr.str());
 			DEBUG_CRASH(("Found map '%s' in wrong spot (%s)", filenameLower.str(), filepathLower.str()));
 			continue;
 		}
 
 		if (!TheFileSystem->getFileInfo(*filepathIt, &fileInfo))
 		{
+			fprintf(stderr, "GX-TRACE: loadMapsFromDisk: error - could not get file info for '%s'\n", filepathIt->str());
 			DEBUG_CRASH(("Could not get file info for map %s", filepathIt->str()));
 			continue;
 		}
@@ -738,6 +784,7 @@ static void buildMapListForNumPlayers(MapNameList &outMapNames, MapDisplayToFile
 			outFileNames[it->second.m_displayName] = it->first;
 		}
 	}
+	fprintf(stderr, "GX-TRACE: buildMapListForNumPlayers(numPlayers=%d): inserted %u maps\n", numPlayers, (unsigned int)outMapNames.size());
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -785,6 +832,8 @@ static Bool addMapToMapListbox(
 	const MapMetaData& mapMetaData)
 {
 	const Bool mapOk = mapName.startsWithNoCase(mapDir.str()) && lbData.isMultiplayer == mapMetaData.m_isMultiplayer && !mapMetaData.m_displayName.isEmpty();
+	fprintf(stderr, "GX-TRACE: addMapToMapListbox: mapName='%s' mapDir='%s' isMp_meta=%d isMp_lb=%d dispEmpty=%d -> mapOk=%d\n",
+	        mapName.str(), mapDir.str(), (int)mapMetaData.m_isMultiplayer, (int)lbData.isMultiplayer, (int)mapMetaData.m_displayName.isEmpty(), (int)mapOk);
 
 	if (mapOk)
 	{
@@ -1090,15 +1139,15 @@ const MapMetaData *MapCache::findMap(AsciiString mapName)
 // ------------------------------------------------------------------------------------------------
 /** Embed the pristine map into the xfer stream */
 // ------------------------------------------------------------------------------------------------
-static void copyFromBigToDir( const AsciiString& infile, const AsciiString& outfile )
+__attribute__((noinline)) Bool copyFromBigToDir( const AsciiString& infile, const AsciiString& outfile )
 {
 	// open the map file
 
 	File *file = TheFileSystem->openFile( infile.str(), File::READ | File::BINARY );
 	if( file == nullptr )
 	{
-		DEBUG_CRASH(( "copyFromBigToDir - Error opening source file '%s'", infile.str() ));
-		throw SC_INVALID_DATA;
+		DEBUG_LOG(( "copyFromBigToDir - Error opening source file '%s'", infile.str() ));
+		return false;
 	}
 
 	// how big is the map file
@@ -1112,15 +1161,18 @@ static void copyFromBigToDir( const AsciiString& infile, const AsciiString& outf
 	char *buffer = NEW char[ fileSize ];
 	if( buffer == nullptr )
 	{
-		DEBUG_CRASH(( "copyFromBigToDir - Unable to allocate buffer for file '%s'", infile.str() ));
-		throw SC_INVALID_DATA;
+		DEBUG_LOG(( "copyFromBigToDir - Unable to allocate buffer for file '%s'", infile.str() ));
+		file->close();
+		return false;
 	}
 
 	// copy the file to the buffer
 	if( file->read( buffer, fileSize ) < fileSize )
 	{
-		DEBUG_CRASH(( "copyFromBigToDir - Error reading from file '%s'", infile.str() ));
-		throw SC_INVALID_DATA;
+		DEBUG_LOG(( "copyFromBigToDir - Error reading from file '%s'", infile.str() ));
+		file->close();
+		delete [] buffer;
+		return false;
 	}
 	// close the BIG file
 	file->close();
@@ -1129,14 +1181,17 @@ static void copyFromBigToDir( const AsciiString& infile, const AsciiString& outf
 
 	if( !filenew || filenew->write(buffer, fileSize) < fileSize)
 	{
-		DEBUG_CRASH(( "copyFromBigToDir - Error writing to file '%s'", outfile.str() ));
-		throw SC_INVALID_DATA;
+		DEBUG_LOG(( "copyFromBigToDir - Error writing to file '%s'", outfile.str() ));
+		if (filenew) filenew->close();
+		delete [] buffer;
+		return false;
 	}
 
 	filenew->close();
 
 	// delete the buffer
 	delete [] buffer;
+	return true;
 }
 
 Image *getMapPreviewImage( AsciiString mapName )
@@ -1181,16 +1236,7 @@ Image *getMapPreviewImage( AsciiString mapName )
 
 		mapPreviewDir.concat(name);
 
-		Bool success = false;
-		try
-		{
-			copyFromBigToDir(tgaName, mapPreviewDir);
-			success = true;
-		}
-		catch (...)
-		{
-			success = false;	// no rethrow
-		}
+		Bool success = copyFromBigToDir(tgaName, mapPreviewDir);
 
 		if (success)
 		{

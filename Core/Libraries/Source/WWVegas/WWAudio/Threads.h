@@ -70,6 +70,22 @@ class WWAudioThreadsClass
 		static void			Add_Delayed_Release_Object (RefCountClass *object, DWORD delay = 2000);
 		static void			Flush_Delayed_Release_Objects ();
 
+		//
+		// Tick_Delayed_Release_Objects — drain expired entries synchronously.
+		//
+		// On Win32 the Delayed_Release_Thread_Proc worker handles this on a
+		// timer. On single-threaded Emscripten the worker thread never runs
+		// (_beginthread is a no-op), so the release list grows unbounded and
+		// audio objects leak. The web port calls this once per frame from
+		// GameWebFrameCallback to do exactly what one iteration of the worker
+		// loop would have done.
+		//
+		// Safe to call before/after Create_/End_Delayed_Release_Thread; safe
+		// to call from the main thread on any platform.
+		// GeneralsX @feature WebPort 2026-05-04
+		//
+		static void			Tick_Delayed_Release_Objects ();
+
 	private:
 
 		//////////////////////////////////////////////////////////////////////

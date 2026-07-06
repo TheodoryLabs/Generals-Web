@@ -1,0 +1,62 @@
+name: Feature Request
+description: Suggest an improvement to the web port.
+labels: ["enhancement"]
+
+body:
+- type: markdown
+  attributes:
+    value: |
+      Ideas welcome — especially ones you'd like to help build. If your idea is about
+      the original game logic (balance, units, campaign behavior) rather than the web
+      port, it probably belongs with the upstream
+      [GeneralsGameCode](https://github.com/TheSuperHackers/GeneralsGameCode) project.
+
+- type: dropdown
+  attributes:
+    label: Area
+    options:
+      - Rendering (WebGL 2 / GLES3 wrapper)
+      - Audio (Web Audio bridge)
+      - Input (keyboard / mouse / touch / pointer lock)
+      - Networking / multiplayer
+      - Asset loading (BigVFS / IndexedDB / OPFS)
+      - Build system / CI
+      - Web shell / UI around the canvas
+      - Documentation
+      - Other
+  validations:
+    required: true
+
+- type: textarea
+  attributes:
+    label: Problem or motivation
+    description: What's missing, awkward, or slow today? Why does it matter?
+  validations:
+    required: true
+
+- type: textarea
+  attributes:
+    label: Proposed solution
+    description: What would you like to happen? Sketch the approach if you have one in mind.
+  validations:
+    required: true
+
+- type: textarea
+  attributes:
+    label: Alternatives considered
+  validations:
+    required: false
+
+- type: textarea
+  attributes:
+    label: Additional context
+    description: Links, prior art, references to docs/web-port/ entries. No game data files.
+  validations:
+    required: false
+
+- type: checkboxes
+  attributes:
+    label: Contribution
+    options:
+      - label: I'd be interested in implementing this myself with some guidance
+        required: false

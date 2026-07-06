@@ -1,0 +1,1256 @@
+<!doctype html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>Command &amp; Conquer Generals: Zero Hour — Web</title>
+    <style>
+      :root {
+        --gx-bg: #0a0a0a;
+        --gx-fg: #f0d27a;        /* aged gold */
+        --gx-accent: #b3261e;    /* GLA red */
+        --gx-mute: #6a5d3b;
+        --gx-track: #1a1a1a;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: var(--gx-bg);
+        color: var(--gx-fg);
+        font-family: 'Courier New', Consolas, monospace;
+        overflow: hidden;
+      }
+      /* The canvas the game renders into. Must be #canvas for SDL2/Emscripten. */
+      /* Outer wrapper that letterboxes the engine's fixed-aspect canvas
+         into whatever viewport size we have. The engine draws at 800x600
+         internally; we keep the GL drawing buffer pinned to those
+         dimensions and use the wrapper to center + scale the visible
+         canvas. The aspect ratio is preserved (4:3) so menus and HUD
+         stay laid out at their authored coordinates. */
+      #gx-canvas-wrap {
+        position: fixed;
+        inset: 0;
+        background: #000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      canvas#canvas {
+        display: block;
+        /* CSS size: scaled-up engine framebuffer. Aspect ratio MUST match
+           the backing buffer (800x600) so the engine's 2D coordinates land
+           where they were authored to. The wrapper above centers us. */
+        aspect-ratio: 4 / 3;
+        width: auto;
+        height: 100%;
+        max-width: 100%;
+        max-height: 100%;
+        background: #000;
+        outline: none;
+        border: 0;
+        image-rendering: auto;  /* let the browser bilerp the upscale */
+        /* Disable browser-native touch gestures so SDL gets every event:
+           - pinch/zoom of the page itself
+           - double-tap zoom
+           - swipe-to-navigate
+           Without this, two-finger drag on iOS Safari zooms the document
+           instead of dispatching SDL_FINGER* events to the canvas.        */
+        touch-action: none;
+        /* Suppress the iOS tap-highlight rectangle when a touch starts. */
+        -webkit-tap-highlight-color: transparent;
+        /* Disable text-selection on long-press, which otherwise pops a
+           selection magnifier over the game. */
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      /* Loading overlay — full-screen until window.GeneralsX.setProgress('ready', ...). */
+      #gx-loading {
+        position: fixed;
+        inset: 0;
+        background: var(--gx-bg);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+        transition: opacity 600ms ease-out, visibility 600ms ease-out;
+        visibility: visible;
+      }
+      #gx-loading.gx-hide {
+        opacity: 0;
+        pointer-events: none;
+        visibility: hidden;
+      }
+      #gx-title {
+        font-size: 26px;
+        letter-spacing: 6px;
+        color: var(--gx-fg);
+        text-shadow: 0 0 12px rgba(240, 210, 122, 0.35);
+        margin-bottom: 8px;
+        text-transform: uppercase;
+      }
+      #gx-subtitle {
+        font-size: 13px;
+        letter-spacing: 3px;
+        color: var(--gx-mute);
+        margin-bottom: 48px;
+        text-transform: uppercase;
+      }
+      #gx-stage {
+        font-size: 11px;
+        letter-spacing: 2px;
+        color: var(--gx-accent);
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        min-height: 14px;
+      }
+      #gx-label {
+        font-size: 13px;
+        color: var(--gx-fg);
+        margin-bottom: 18px;
+        min-height: 18px;
+        max-width: 480px;
+        text-align: center;
+      }
+      #gx-bar {
+        width: 480px;
+        max-width: 70vw;
+        height: 4px;
+        background: var(--gx-track);
+        border: 1px solid var(--gx-mute);
+        position: relative;
+        overflow: hidden;
+      }
+      #gx-fill {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 0%;
+        background: linear-gradient(90deg,
+          var(--gx-accent) 0%,
+          var(--gx-fg) 100%);
+        transition: width 220ms ease-out;
+      }
+      #gx-counter {
+        margin-top: 8px;
+        font-size: 11px;
+        color: var(--gx-mute);
+        letter-spacing: 1px;
+        min-height: 14px;
+      }
+      /* "Click to begin" button — only shown when the engine reaches the
+         `ready` stage WITHOUT a prior user gesture. Browsers block AudioContext
+         start and pointer-lock requests until the user interacts with the page,
+         so we gate the engine handoff on a click. Users who already clicked
+         while waiting for the WASM to download skip this screen entirely. */
+      #gx-start {
+        margin-top: 28px;
+        padding: 14px 56px;
+        background: transparent;
+        color: var(--gx-fg);
+        border: 1px solid var(--gx-fg);
+        font-family: inherit;
+        font-size: 16px;
+        letter-spacing: 6px;
+        text-transform: uppercase;
+        cursor: pointer;
+        display: none;
+        transition: background-color 180ms ease-out, color 180ms ease-out;
+      }
+      #gx-start:hover {
+        background: var(--gx-fg);
+        color: var(--gx-bg);
+      }
+      #gx-loading.gx-await-start #gx-bar,
+      #gx-loading.gx-await-start #gx-counter,
+      #gx-loading.gx-await-start #gx-stage,
+      #gx-loading.gx-await-start #gx-label {
+        opacity: 0.35;
+      }
+      #gx-loading.gx-await-start #gx-start { display: inline-block; }
+      /* Floating "now loading audio…" toast that lives in the corner of the
+         canvas while the deferred audio mount runs in the background. The
+         engine is fully running underneath; the user can click around in the
+         menu while this is happening. */
+      #gx-toast {
+        position: fixed;
+        right: 16px;
+        bottom: 16px;
+        min-width: 240px;
+        max-width: 360px;
+        padding: 10px 14px;
+        background: rgba(10, 10, 10, 0.85);
+        border: 1px solid var(--gx-mute);
+        color: var(--gx-fg);
+        font-size: 12px;
+        letter-spacing: 1px;
+        z-index: 5;
+        opacity: 0;
+        transform: translateY(20px);
+        transition: opacity 240ms ease-out, transform 240ms ease-out;
+        pointer-events: none;
+      }
+      #gx-toast.gx-show {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      #gx-toast-stage {
+        font-size: 10px;
+        letter-spacing: 2px;
+        color: var(--gx-accent);
+        text-transform: uppercase;
+        margin-bottom: 4px;
+      }
+      #gx-toast-label {
+        margin-bottom: 6px;
+      }
+      #gx-toast-bar {
+        height: 2px;
+        background: var(--gx-track);
+        border: 1px solid var(--gx-mute);
+        position: relative;
+      }
+      #gx-toast-fill {
+        position: absolute;
+        left: 0; top: 0; bottom: 0;
+        width: 0;
+        background: var(--gx-fg);
+        transition: width 220ms ease-out;
+      }
+      /* Hidden in the default UI but available for opt-in console output. */
+      #gx-output {
+        display: none;
+        position: fixed;
+        right: 8px;
+        bottom: 8px;
+        width: 360px;
+        height: 160px;
+        background: rgba(0, 0, 0, 0.7);
+        color: var(--gx-fg);
+        font-size: 10px;
+        padding: 6px;
+        border: 1px solid var(--gx-mute);
+        z-index: 20;
+        overflow-y: auto;
+        white-space: pre;
+        font-family: 'Courier New', Consolas, monospace;
+      }
+      body.gx-debug #gx-output { display: block; }
+      /* Error overlay shown on uncaught WASM exceptions. */
+      #gx-error {
+        position: fixed;
+        inset: 0;
+        background: rgba(10, 0, 0, 0.92);
+        color: #fff;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 30;
+        padding: 32px;
+        text-align: center;
+      }
+      #gx-error h2 {
+        color: var(--gx-accent);
+        margin: 0 0 12px 0;
+        letter-spacing: 4px;
+      }
+      #gx-error pre {
+        color: var(--gx-fg);
+        max-width: 80vw;
+        max-height: 40vh;
+        overflow: auto;
+        font-size: 12px;
+      }
+      #gx-error button {
+        margin-top: 16px;
+        padding: 8px 24px;
+        background: transparent;
+        color: var(--gx-fg);
+        border: 1px solid var(--gx-fg);
+        font-family: inherit;
+        font-size: 12px;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        cursor: pointer;
+      }
+      #gx-error button:hover {
+        background: var(--gx-fg);
+        color: var(--gx-bg);
+      }
+      #gx-settings-toggle:hover {
+        background: var(--gx-mute) !important;
+        border-color: var(--gx-fg) !important;
+      }
+      #gx-settings-drawer.gx-show {
+        right: 16px !important;
+      }
+      #gx-btn-fullscreen:hover {
+        background: var(--gx-fg);
+        color: var(--gx-bg);
+      }
+    </style>
+  </head>
+  <body>
+
+    <div id="gx-canvas-wrap">
+      <canvas id="canvas" width="800" height="600"
+              oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+    </div>
+
+    <div id="gx-loading" role="status" aria-live="polite">
+      <div id="gx-title">Generals Zero Hour</div>
+      <div id="gx-subtitle">Web Edition</div>
+      <div id="gx-stage">Downloading runtime</div>
+      <div id="gx-label">Fetching WebAssembly module&hellip;</div>
+      <div id="gx-bar"><div id="gx-fill"></div></div>
+      <div id="gx-counter"></div>
+      <button id="gx-start" type="button">Begin</button>
+    </div>
+
+    <div id="gx-error">
+      <h2 id="gx-error-title">Engine fault</h2>
+      <pre id="gx-error-detail"></pre>
+      <button id="gx-error-reload" type="button">Reload page</button>
+    </div>
+
+    <div id="gx-toast" role="status" aria-live="polite">
+      <div id="gx-toast-stage">Background load</div>
+      <div id="gx-toast-label">Loading audio assets…</div>
+      <div id="gx-toast-bar"><div id="gx-toast-fill"></div></div>
+    </div>
+
+    <!-- Virtual cursor for pointer lock mode -->
+    <div id="gx-virtual-cursor" style="
+      position: fixed;
+      width: 24px;
+      height: 24px;
+      background-image: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2224%22 height=%2224%22 viewBox=%220 0 24 24%22><path d=%22M0,0 L0,16 L4,12 L8,20 L11,18.5 L7,10.5 L12,10.5 Z%22 fill=%22%23f0d27a%22 stroke=%22%23000%22 stroke-width=%221.5%22/></svg>');
+      background-size: contain;
+      pointer-events: none;
+      z-index: 9999;
+      display: none;
+    "></div>
+
+    <!-- Settings Gear Button -->
+    <button id="gx-settings-toggle" type="button" aria-label="Settings" style="
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      width: 36px;
+      height: 36px;
+      background: rgba(10, 10, 10, 0.7);
+      border: 1px solid var(--gx-mute);
+      color: var(--gx-fg);
+      cursor: pointer;
+      border-radius: 4px;
+      z-index: 8;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      transition: background-color 150ms, border-color 150ms;
+    ">⚙️</button>
+
+    <!-- Glassmorphic Settings Drawer -->
+    <div id="gx-settings-drawer" style="
+      position: fixed;
+      top: 64px;
+      right: -280px;
+      width: 260px;
+      background: rgba(10, 10, 10, 0.85);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid var(--gx-mute);
+      border-radius: 4px;
+      color: var(--gx-fg);
+      padding: 16px;
+      z-index: 8;
+      transition: right 250ms ease-out;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    ">
+      <div style="font-size: 13px; font-weight: bold; margin-bottom: 12px; letter-spacing: 2px; text-transform: uppercase; color: var(--gx-accent); border-bottom: 1px solid var(--gx-mute); padding-bottom: 6px;">Settings</div>
+      
+      <div style="margin-bottom: 14px;">
+        <label style="display: flex; align-items: center; cursor: pointer; font-size: 11px; letter-spacing: 1px;">
+          <input type="checkbox" id="gx-setting-lock-cursor" style="margin-right: 8px; accent-color: var(--gx-fg);">
+          LOCK CURSOR (LOCK MOUSE)
+        </label>
+        <div style="font-size: 9px; color: var(--gx-mute); margin-left: 20px; margin-top: 3px;">Confinement mode (press Esc to free)</div>
+      </div>
+
+      <div style="margin-bottom: 14px;">
+        <label style="display: flex; align-items: center; cursor: pointer; font-size: 11px; letter-spacing: 1px;">
+          <input type="checkbox" id="gx-setting-edge-scroll" style="margin-right: 8px; accent-color: var(--gx-fg);" checked>
+          EDGE SCROLLING
+        </label>
+        <div style="font-size: 9px; color: var(--gx-mute); margin-left: 20px; margin-top: 3px;">Pan camera at screen boundaries</div>
+      </div>
+
+      <div style="margin-bottom: 16px;" id="gx-setting-edge-zone-wrap">
+        <div style="display: flex; justify-content: space-between; font-size: 10px; letter-spacing: 1px; margin-bottom: 4px;">
+          <span>EDGE ZONE</span>
+          <span id="gx-setting-edge-zone-val">20px</span>
+        </div>
+        <input type="range" id="gx-setting-edge-zone" min="5" max="40" value="20" style="width: 100%; accent-color: var(--gx-fg); cursor: pointer;">
+      </div>
+
+      <button id="gx-btn-fullscreen" type="button" style="
+        width: 100%;
+        padding: 8px;
+        background: transparent;
+        color: var(--gx-fg);
+        border: 1px solid var(--gx-fg);
+        font-family: inherit;
+        font-size: 11px;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition: background-color 150ms, color 150ms;
+      ">Go Fullscreen</button>
+    </div>
+
+    <pre id="gx-output"></pre>
+
+    <script>
+      // window.GeneralsX — bridge between the WASM engine and the loading UI.
+      //
+      // EmscriptenMain.cpp calls window.GeneralsX.setProgress(stage, current,
+      // total, label) at strategic boot points. Stages, in order:
+      //   "boot"   — early init (SDL, GL, frame pacer). 6 substeps.
+      //   "vfs"    — BigVFS archive mount. One tick per archive.
+      //   "engine" — TheGameEngine->init() bring-up.
+      //   "ready"  — engine is rendering; fade the overlay out.
+      //
+      // The contract is documented in EmscriptenMain.cpp's GX_ReportProgress.
+      // ====================================================================
+      (function () {
+        const overlay  = document.getElementById('gx-loading');
+        const stageEl  = document.getElementById('gx-stage');
+        const labelEl  = document.getElementById('gx-label');
+        const fillEl   = document.getElementById('gx-fill');
+        const countEl  = document.getElementById('gx-counter');
+        const errorEl  = document.getElementById('gx-error');
+        const errorDet = document.getElementById('gx-error-detail');
+        const outputEl = document.getElementById('gx-output');
+
+        // Virtual UDP BroadcastChannel networking routing
+        const urlParams = new URLSearchParams(window.location.search);
+        const virtualNetEnabled = urlParams.has('virtual_net') || urlParams.has('ip') || urlParams.has('virtual_ip');
+        
+        let virtualIP = [127, 0, 0, 1];
+        if (virtualNetEnabled) {
+          const ipParam = urlParams.get('ip') || urlParams.get('virtual_ip');
+          if (ipParam && /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ipParam)) {
+            virtualIP = ipParam.split('.').map(Number);
+          } else {
+            // Auto-assign random IP on 10.0.0.X (between 2 and 254)
+            const randomOctet = Math.floor(Math.random() * 253) + 2;
+            virtualIP = [10, 0, 0, randomOctet];
+          }
+          console.log(`[GeneralsX] Virtual Networking enabled. Assigned Virtual IP: ${virtualIP.join('.')}`);
+        }
+
+        const ipToUint32 = (octets) => {
+          return ((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]) >>> 0;
+        };
+        const virtualIPInt = ipToUint32(virtualIP);
+
+        const bc = new BroadcastChannel('generalsx-virtual-lan');
+        bc.onmessage = function (e) {
+          if (!virtualNetEnabled) return;
+          if (e.data && e.data.type === 'udp_packet') {
+            const packet = e.data;
+            const isBroadcast = packet.destIP === 0xFFFFFFFF;
+            const isForUs = isBroadcast || (packet.destIP === virtualIPInt);
+            if (isForUs && packet.srcIP !== virtualIPInt) {
+              if (window.Module && typeof window.Module._GX_Network_PushPacket === 'function') {
+                const payload = packet.payload;
+                const len = payload.length;
+                const ptr = window.Module._malloc(len);
+                window.Module.HEAPU8.set(payload, ptr);
+                window.Module._GX_Network_PushPacket(ptr, len, packet.srcIP, packet.srcPort);
+                window.Module._free(ptr);
+              }
+            }
+          }
+        };
+
+        // Stage display names. The C++ side uses the keys; the UI uses the values.
+        const STAGE_LABELS = {
+          'boot':     'Booting engine',
+          'vfs':      'Mounting game data',
+          'engine':   'Initializing game engine',
+          'ready':    'Ready'
+        };
+
+        // Bar weights, summing to 1.00:
+        //   download — wasm download + run-deps (handled by Module.setStatus)
+        //   boot     — early init (SDL / GL / frame pacer)
+        //   vfs      — BigVFS archive mount  (the longest-running stage)
+        //   engine   — TheGameEngine->init()
+        const DOWNLOAD_WEIGHT = 0.05;
+        const STAGE_WEIGHT = { 'boot': 0.05, 'vfs': 0.55, 'engine': 0.35 };
+
+        let lastReady = false;
+        let lastPct = 0;
+
+        // Gesture-gating state. Browsers won't let the page resume an
+        // AudioContext, request pointer lock, or play media without a prior
+        // user gesture. We track any pointer/keyboard interaction since page
+        // load; if `ready` arrives before the user has interacted, we show a
+        // "Begin" button to harvest a click before fading the overlay.
+        let gxUserGestureSeen = false;
+        let gxReadyPending = false;
+        const startBtn = document.getElementById('gx-start');
+
+        function removeGestureListeners() {
+          ['pointerdown', 'keydown', 'touchstart', 'click', 'touchend'].forEach((evt) => {
+            window.removeEventListener(evt, gxOnFirstGesture,
+                                    { passive: true, capture: true });
+          });
+          if (startBtn) {
+            startBtn.removeEventListener('click', gxOnFirstGesture);
+          }
+        }
+
+        function gxResumeAudioContext() {
+          // Best-effort. Safe whether or not WWAudio / Web Audio is wired up
+          // yet — when the audio backend lands, this is the gesture that
+          // unblocks AudioContext.resume(). The Module property is the
+          // canonical place Emscripten apps stash an AudioContext.
+          try {
+            const ctx = (window.Module && window.Module.SDL2 && window.Module.SDL2.audioContext) ||
+                        (window.AILBridge && window.AILBridge.audioContext);
+            if (ctx) {
+              if (typeof ctx.resume === 'function') {
+                if (ctx.state === 'suspended') {
+                  ctx.resume().then(() => {
+                    console.log('[GeneralsX] AudioContext resumed successfully');
+                    removeGestureListeners();
+                  }).catch((err) => {
+                    console.warn('[GeneralsX] AudioContext resume failed:', err);
+                  });
+                } else if (ctx.state === 'running') {
+                  console.log('[GeneralsX] AudioContext is already running');
+                  removeGestureListeners();
+                }
+              }
+            }
+          } catch (e) { /* ignore — backend may not exist yet */ }
+        }
+
+        function gxFinishLoading() {
+          console.log('[GeneralsX] gxFinishLoading() called');
+          if (overlay) {
+            overlay.classList.add('gx-hide');
+            setTimeout(() => {
+              overlay.style.display = 'none';
+              console.log('[GeneralsX] loading overlay display set to none');
+            }, 700);
+          }
+        }
+
+        function gxShowStartButton() {
+          console.log('[GeneralsX] gxShowStartButton() called');
+          overlay.classList.add('gx-await-start');
+          if (startBtn) {
+            try { startBtn.focus(); } catch (e) {}
+          }
+        }
+
+        function gxOnFirstGesture(e) {
+          const eventType = e ? e.type : 'manual';
+          console.log('[GeneralsX] gxOnFirstGesture() triggered by event:', eventType, 'lastReady:', lastReady, 'gxReadyPending:', gxReadyPending);
+          gxResumeAudioContext();
+          gxUserGestureSeen = true;
+          
+          // Unconditionally clear the overlay if the engine is ready
+          if (lastReady || gxReadyPending) {
+            console.log('[GeneralsX] Handoff proceeding. Hiding loading screen...');
+            gxReadyPending = false;
+            if (overlay) {
+              overlay.classList.remove('gx-await-start');
+              gxFinishLoading();
+            }
+            removeGestureListeners();
+          }
+        }
+
+        // Any of these counts as a gesture for autoplay purposes.
+        ['pointerdown', 'keydown', 'touchstart', 'click', 'touchend'].forEach((evt) => {
+          window.addEventListener(evt, gxOnFirstGesture,
+                                  { passive: true, capture: true });
+        });
+        if (startBtn) {
+          startBtn.addEventListener('click', function(e) {
+            console.log('[GeneralsX] Begin button click listener fired');
+            gxOnFirstGesture(e);
+          });
+        }
+
+        function setOverallPct(pct) {
+          const next = Math.max(0, Math.min(100, pct));
+          // Never regress: if the WASM download finished (5%) and then the
+          // C++ side reports boot=1/6 (~6%), we move forward; if it reports
+          // boot=0/6 we hold at 5% rather than snapping back.
+          if (next < lastPct) return;
+          lastPct = next;
+          fillEl.style.width = next.toFixed(1) + '%';
+        }
+
+        window.GeneralsX = {
+          virtualIP: virtualIP,
+          virtualNetEnabled: virtualNetEnabled,
+          onSendPacket: function (data, destIP, destPort) {
+            if (!virtualNetEnabled) return;
+            bc.postMessage({
+              type: 'udp_packet',
+              srcIP: virtualIPInt,
+              srcPort: 8087,
+              destIP: destIP,
+              destPort: destPort,
+              payload: data
+            });
+          },
+
+          setProgress: function (stage, current, total, label) {
+            if (lastReady) return; // ignore late updates after engine is up
+
+            if (stage === 'ready') {
+              lastReady = true;
+              setOverallPct(100);
+              stageEl.textContent = 'Ready';
+              labelEl.textContent = '';
+              countEl.textContent = '';
+              // Best-effort to resume AudioContext. Note that if the browser
+              // blocks the resume call because it is not within a user gesture
+              // callback, we fall back to showing the "Begin" button even if
+              // a gesture was previously recorded.
+              gxResumeAudioContext();
+
+              const ctx = (window.Module && window.Module.SDL2 && window.Module.SDL2.audioContext) ||
+                          (window.AILBridge && window.AILBridge.audioContext);
+              const isAudioActiveOrNoAudio = !ctx || ctx.state === 'running';
+
+              if (gxUserGestureSeen && isAudioActiveOrNoAudio) {
+                gxFinishLoading();
+              } else {
+                gxReadyPending = true;
+                gxShowStartButton();
+              }
+              return;
+            }
+
+            const stageLabel = STAGE_LABELS[stage] || stage;
+            stageEl.textContent = stageLabel;
+            labelEl.textContent = label || '';
+
+            // Compute overall pct: download + finished prior stages + fractional in-stage.
+            let cumulative = DOWNLOAD_WEIGHT;
+            for (const s of ['boot', 'vfs', 'engine']) {
+              if (s === stage) {
+                if (total > 0) cumulative += STAGE_WEIGHT[s] * (current / total);
+                break;
+              }
+              cumulative += STAGE_WEIGHT[s];
+            }
+            setOverallPct(cumulative * 100);
+
+            countEl.textContent = (total > 0)
+              ? `${current}/${total}`
+              : '';
+          },
+
+          // Toggle the on-page log output. Useful for in-browser triage when
+          // the JS console is awkward to reach (e.g., on a tablet).
+          showOutput: function (on) {
+            document.body.classList.toggle('gx-debug', !!on);
+          },
+
+          // Hard error display — used by Module.onAbort, window.onerror, and
+          // the canvas webglcontextlost listener.
+          showError: function (message, title) {
+            errorDet.textContent = message;
+            const titleEl = document.getElementById('gx-error-title');
+            if (titleEl) titleEl.textContent = title || 'Engine fault';
+            errorEl.style.display = 'flex';
+            // Hide the loading overlay outright. Its semi-transparent error
+            // background otherwise lets the dimmed loading UI (faded title,
+            // and any Begin button if the engine reached `ready` first) bleed
+            // through, which is confusing.
+            overlay.style.display = 'none';
+          },
+
+          // Cursor visibility on the canvas.
+          //   visible === true  → engine wants the system cursor
+          //   visible === false → engine is drawing its own cursor; hide system
+          // The C++ SetCursor() stub in windows_base.h calls this through
+          // EmscriptenInput_SetCanvasCursor.
+          cursorVisible: true,
+          setCanvasCursor: function (visible) {
+            const c = document.getElementById('canvas');
+            if (!c) return;
+            c.style.cursor = visible ? 'default' : 'none';
+            window.GeneralsX.cursorVisible = !!visible;
+            if (typeof window.GeneralsX.updateVirtualCursorVisibility === 'function') {
+              window.GeneralsX.updateVirtualCursorVisibility();
+            }
+          },
+
+          // Secondary "background loading" toast — used by the deferred audio
+          // mount in EmscriptenMain.cpp's DeferredAudio_Step. Appears in the
+          // bottom-right corner; doesn't block input.
+          //   stage:   short label like "Loading audio assets" or "Audio ready"
+          //   current: 0..total
+          //   total:   number of items
+          //   label:   optional sub-label (e.g., the archive filename)
+          setSecondaryProgress: function (stage, current, total, label) {
+            const toast = document.getElementById('gx-toast');
+            const stageE = document.getElementById('gx-toast-stage');
+            const labelE = document.getElementById('gx-toast-label');
+            const fillE  = document.getElementById('gx-toast-fill');
+            if (!toast) return;
+            if (stage) stageE.textContent = stage;
+            labelE.textContent = label || (total > 0 ? (current + ' / ' + total) : '');
+            const pct = total > 0 ? Math.max(0, Math.min(100, (current / total) * 100)) : 0;
+            fillE.style.width = pct.toFixed(1) + '%';
+            toast.classList.add('gx-show');
+          },
+          hideSecondaryProgress: function () {
+            const toast = document.getElementById('gx-toast');
+            if (toast) toast.classList.remove('gx-show');
+          },
+          settings: (function() {
+            var defaults = { lockCursor: false, edgeScroll: true, edgeScrollZone: 20 };
+            try {
+              var saved = localStorage.getItem('generalsx_settings');
+              if (saved) {
+                var parsed = JSON.parse(saved);
+                if (typeof parsed === 'object' && parsed !== null) {
+                  return Object.assign(defaults, parsed);
+                }
+              }
+            } catch(e) {}
+            return defaults;
+          })()
+        };
+
+        // ------------------------------------------------------------------
+        // Canvas backing buffer is locked to 800x600 — the engine's
+        // hardcoded internal resolution (DEFAULT_DISPLAY_WIDTH/HEIGHT in
+        // GameDefines.h, set on every Begin_Render via Set_Viewport). The
+        // 2D UI (menus, HUD, button positions) is laid out in those
+        // coordinates, so resizing the backing store would push the
+        // buttons out of frame. Instead we let the wrapper (#gx-canvas-wrap)
+        // CSS-scale the canvas to the visible viewport while preserving
+        // the 4:3 aspect ratio so text + textures stay sharp-ish under
+        // browser bilerp.
+        //
+        // We have to fight a couple of forces that try to "auto-fit" the
+        // canvas backing to its CSS size:
+        //   - Emscripten's SDL2 port sometimes resizes the canvas during
+        //     SDL_CreateWindow to match the displayed size.
+        //   - `emscripten_set_canvas_element_size` from the C++ side will
+        //     also overwrite the attributes.
+        // We pin the size at three points (preRun, runtime exec, every
+        // ResizeObserver callback) and always fight back. The C++
+        // `GX_OnCanvasResize` is overridden to be a no-op below by
+        // intercepting the ccall — it has no business resizing us when
+        // the engine resolution is fixed.
+        // ------------------------------------------------------------------
+        const GX_FIXED_W = 800;
+        const GX_FIXED_H = 600;
+        const gxLockCanvasBacking = function () {
+          const canvasEl = document.getElementById('canvas');
+          if (!canvasEl) return;
+          if (canvasEl.width !== GX_FIXED_W) canvasEl.width = GX_FIXED_W;
+          if (canvasEl.height !== GX_FIXED_H) canvasEl.height = GX_FIXED_H;
+        };
+        gxLockCanvasBacking();
+        // Re-pin on any resize-like event Emscripten may trigger.
+        if (typeof ResizeObserver !== 'undefined') {
+          try {
+            new ResizeObserver(gxLockCanvasBacking)
+                .observe(document.getElementById('canvas'));
+          } catch (e) { /* fall back to interval */ }
+        }
+        // Belt-and-braces: setInterval to repin in case ResizeObserver
+        // misses an Emscripten-side write. Cheap (1Hz, two int compares).
+        setInterval(gxLockCanvasBacking, 1000);
+
+        // ------------------------------------------------------------------
+        // WebGL context loss — the browser may drop the GL context if the GPU
+        // is reset, the tab is throttled too long, or the OS swaps it out.
+        // Without preventDefault() the browser would tear down the page; we
+        // catch the event and show a graceful "context lost" overlay with a
+        // reload button.
+        //
+        // Recovery via webglcontextrestored is theoretically possible but
+        // would need the engine to re-upload every texture / VBO / shader,
+        // which it isn't designed to do — so we treat loss as terminal and
+        // ask the user to reload.
+        // ------------------------------------------------------------------
+        (function () {
+          const canvasEl = document.getElementById('canvas');
+          if (!canvasEl) return;
+          canvasEl.addEventListener('webglcontextlost', function (e) {
+            e.preventDefault();
+            console.warn('[GeneralsX] WebGL context lost');
+            window.GeneralsX.showError(
+                'The browser dropped the WebGL graphics context. ' +
+                'This usually happens after a GPU reset, a long tab ' +
+                'background, or a graphics-driver issue. Reload the page ' +
+                'to start a fresh context.',
+                'Graphics context lost');
+          }, false);
+          canvasEl.addEventListener('webglcontextrestored', function () {
+            console.info('[GeneralsX] WebGL context restored ' +
+                         '(but engine cannot resume — reload still required)');
+          }, false);
+        })();
+
+        // ------------------------------------------------------------------
+        // Reload button on the error overlay.
+        // ------------------------------------------------------------------
+        (function () {
+          const btn = document.getElementById('gx-error-reload');
+          if (btn) {
+            btn.addEventListener('click', function () {
+              window.location.reload();
+            });
+          }
+        })();
+
+        // ------------------------------------------------------------------
+        // Pointer Lock — owned by the JS side because the request must be
+        // synchronous with the user gesture, and SDL2-Emscripten queues mouse
+        // events to drain from rAF (no longer in the gesture stack).
+        //
+        // Convention: right-mouse-button-down begins the RTS camera pan.
+        // We request pointer lock, the browser hides the cursor and switches
+        // mousemove events to deliver `movementX`/`movementY` deltas. SDL2
+        // surfaces those as event.motion.xrel/yrel; our C++ side accumulates
+        // them into a virtual cursor position.
+        // ------------------------------------------------------------------
+        const canvasEl = document.getElementById('canvas');
+        if (canvasEl) {
+          canvasEl.addEventListener('mousedown', function (e) {
+            if (window.GeneralsX.settings.lockCursor) {
+              // Continuous lock mode: request pointer lock on any click if not locked
+              if (document.pointerLockElement !== canvasEl) {
+                const req = canvasEl.requestPointerLock || canvasEl.mozRequestPointerLock;
+                if (req) {
+                  try { req.call(canvasEl); }
+                  catch (err) { /* browser may decline; harmless */ }
+                }
+              }
+            } else {
+              // Right-click drag mode: only request on right button (2)
+              if (e.button === 2 && document.pointerLockElement !== canvasEl) {
+                const req = canvasEl.requestPointerLock || canvasEl.mozRequestPointerLock;
+                if (req) {
+                  try { req.call(canvasEl); }
+                  catch (err) { /* browser may decline; harmless */ }
+                }
+              }
+            }
+          });
+          canvasEl.addEventListener('mouseup', function (e) {
+            // If continuous lock is disabled, exit pointer lock on right mouse up
+            if (!window.GeneralsX.settings.lockCursor) {
+              if (e.button === 2 && document.pointerLockElement === canvasEl) {
+                const exit = document.exitPointerLock || document.mozExitPointerLock;
+                if (exit) {
+                  try { exit.call(document); }
+                  catch (err) { /* harmless */ }
+                }
+              }
+            }
+          });
+          // Mirror the lock state into the C++ engine. Module._... is
+          // available once the WASM is instantiated; before that we just
+          // queue the call to fire on first ready event.
+          let lastLockedReported = -1;
+          var isPointerLocked = false;
+
+          let vx = 0;
+          let vy = 0;
+
+          window.GeneralsX.updateVirtualCursorVisibility = function() {
+            var vc = document.getElementById('gx-virtual-cursor');
+            if (!vc) return;
+            if (isPointerLocked && window.GeneralsX.cursorVisible) {
+              vc.style.display = 'block';
+              const rect = canvasEl.getBoundingClientRect();
+              const screenX = rect.left + (vx * rect.width / 800);
+              const screenY = rect.top + (vy * rect.height / 600);
+              vc.style.left = screenX + 'px';
+              vc.style.top = screenY + 'px';
+            } else {
+              vc.style.display = 'none';
+            }
+          };
+
+          const reportLock = function () {
+            const locked = document.pointerLockElement === canvasEl ? 1 : 0;
+            isPointerLocked = !!locked;
+            window.GeneralsX.updateVirtualCursorVisibility();
+
+            if (locked === lastLockedReported) return;
+            lastLockedReported = locked;
+            // ccall is exported (see EXPORTED_RUNTIME_METHODS).
+            if (window.Module && typeof window.Module.ccall === 'function') {
+              try {
+                window.Module.ccall('EmscriptenInput_OnPointerLockChange',
+                                    null, ['number'], [locked]);
+              } catch (err) {
+                console.warn('[GeneralsX] pointer-lock callback failed:', err);
+              }
+            }
+          };
+          document.addEventListener('pointerlockchange', reportLock);
+          document.addEventListener('mozpointerlockchange', reportLock);
+          document.addEventListener('pointerlockerror', function () {
+            console.warn('[GeneralsX] Pointer Lock request was denied');
+          });
+
+          // Track mouse movements: absolute coordinates when not pointer-locked,
+          // and movement deltas when locked.
+          const handleMouseMove = function (e) {
+            const rect = canvasEl.getBoundingClientRect();
+            if (isPointerLocked) {
+              const movementX = e.movementX || e.mozMovementX || e.webkitMovementX || 0;
+              const movementY = e.movementY || e.mozMovementY || e.webkitMovementY || 0;
+              vx += movementX;
+              vy += movementY;
+              // Clamp to 800x600 logical coordinate space of the game
+              if (vx < 0) vx = 0;
+              if (vy < 0) vy = 0;
+              if (vx > 799) vx = 799;
+              if (vy > 599) vy = 599;
+            } else {
+              vx = Math.round(((e.clientX - rect.left) / rect.width) * 800);
+              vy = Math.round(((e.clientY - rect.top) / rect.height) * 600);
+            }
+
+            if (isPointerLocked && window.GeneralsX.cursorVisible) {
+              const vc = document.getElementById('gx-virtual-cursor');
+              if (vc) {
+                const screenX = rect.left + (vx * rect.width / 800);
+                const screenY = rect.top + (vy * rect.height / 600);
+                vc.style.left = screenX + 'px';
+                vc.style.top = screenY + 'px';
+              }
+            }
+          };
+          document.addEventListener('mousemove', handleMouseMove, { passive: true });
+        }
+
+        // --- Default Emscripten Module wiring -------------------------------
+        // The runtime calls these. We translate stdout/stderr into the on-page
+        // log and translate run-dependency progress into the "Downloading"
+        // phase, which runs *before* main() and therefore before the C++
+        // GX_ReportProgress calls take over.
+        const printToOutput = (...args) => {
+          const text = args.join(' ');
+          console.log(text);
+          outputEl.textContent += text + '\n';
+          outputEl.scrollTop = outputEl.scrollHeight;
+        };
+
+        const printErrToOutput = (...args) => {
+          const text = args.join(' ');
+          console.warn(text);
+          outputEl.textContent += text + '\n';
+          outputEl.scrollTop = outputEl.scrollHeight;
+        };
+
+        let runtimeDepsTotal = 0;
+        // ------------------------------------------------------------------
+        // IDBFS mount + initial sync as a runtime dependency.
+        //
+        // The engine reads/writes save games and options.ini under what it
+        // thinks is the user-data directory; on Emscripten we point that at
+        // /userdata, mounted with IDBFS so the contents persist in the
+        // browser's IndexedDB across page reloads. This preRun hook:
+        //   1. Creates /userdata in MEMFS
+        //   2. Mounts IDBFS over it
+        //   3. Calls FS.syncfs(true, ...) to load any previously saved data
+        //      from IndexedDB into MEMFS, BEFORE main() runs (via
+        //      addRunDependency / removeRunDependency, the canonical pattern)
+        //
+        // After main() takes over, the C++ side is responsible for periodic
+        // FS.syncfs(false, ...) flushes — see GX_FlushIdbfs in
+        // EmscriptenMain.cpp.
+        // ------------------------------------------------------------------
+        const idbfsPreRun = function () {
+          const fs = window['Module']['FS'] || (typeof FS !== 'undefined' ? FS : null);
+          if (!fs) {
+            console.warn('[GeneralsX] FS is not defined on Module or globally!');
+            return;
+          }
+          if (fs) {
+            if (!fs['mkdir'] || !fs['mount'] || !fs['syncfs']) {
+              console.log('[GeneralsX] FS.mkdir, FS.mount or FS.syncfs is missing, scanning for minified aliases...');
+              for (const key in fs) {
+                if (typeof fs[key] === 'function') {
+                  const str = fs[key].toString();
+                  if (!fs['syncfs'] && (str.includes('FS.syncfs') || str.includes('operations in flight') || str.includes('extra work'))) {
+                    fs['syncfs'] = fs[key];
+                    console.log(`[GeneralsX] Found minified FS.syncfs as fs['${key}']`);
+                  }
+                  if (!fs['mkdir'] && str.includes('16384')) {
+                    fs['mkdir'] = fs[key];
+                    console.log(`[GeneralsX] Found minified FS.mkdir as fs['${key}']`);
+                  }
+                  if (!fs['mount'] && fs[key].length === 3 && (str.includes('===') && (str.includes('c') || str.includes('mountpoint')) && (str.includes('/') || str.includes('ErrnoError') || str.includes('gj(')))) {
+                    fs['mount'] = fs[key];
+                    console.log(`[GeneralsX] Found minified FS.mount as fs['${key}']`);
+                  }
+                }
+              }
+            }
+          }
+          let idbfs = window['IDBFS'] || (fs['filesystems'] && fs['filesystems']['IDBFS']);
+          if (!idbfs) {
+            // In release mode, Closure Compiler minifies FS.filesystems (e.g. to FS.Np).
+            // Scan FS properties dynamically for an object containing 'MEMFS' and 'IDBFS'.
+            for (const key in fs) {
+              if (fs.hasOwnProperty(key) && fs[key] && typeof fs[key] === 'object' && fs[key]['MEMFS'] && fs[key]['IDBFS']) {
+                idbfs = fs[key]['IDBFS'];
+                console.log(`[GeneralsX] Found IDBFS via minified filesystems property: ${key}`);
+                break;
+              }
+            }
+          }
+          if (idbfs) {
+            const keys = [];
+            for (const key in idbfs) {
+              keys.push(key + ' (len=' + (typeof idbfs[key] === 'function' ? idbfs[key].length : 'N/A') + ')');
+              if (typeof idbfs[key] === 'function') {
+                if (typeof idbfs['mount'] !== 'function' && idbfs[key].length === 1 && key !== 'mount') {
+                  idbfs['mount'] = idbfs[key];
+                  console.log(`[GeneralsX] Aliased IDBFS.${key} to IDBFS.mount`);
+                } else if (typeof idbfs['syncfs'] !== 'function' && idbfs[key].length === 3 && key !== 'syncfs') {
+                  idbfs['syncfs'] = idbfs[key];
+                  console.log(`[GeneralsX] Aliased IDBFS.${key} to IDBFS.syncfs`);
+                }
+              }
+            }
+            console.log('[GeneralsX] IDBFS keys and properties scanned:', keys.join(', '));
+          }
+          if (!idbfs) {
+            console.warn('[GeneralsX] IDBFS is not defined!');
+            return;
+          }
+          try {
+            fs['mkdir']('/userdata');
+          } catch (e) {
+            // Already exists — fine.
+          }
+          try {
+            fs['mount'](idbfs, {}, '/userdata');
+          } catch (e) {
+            console.warn('[GeneralsX] IDBFS mount failed:', e);
+            return;
+          }
+          window['Module']['addRunDependency']('idbfs-load');
+          stageEl.textContent = 'Loading saved data';
+          fs['syncfs'](true, function (err) {
+            if (err) {
+              console.warn('[GeneralsX] IDBFS load failed:', err);
+            } else {
+              console.log('[GeneralsX] IDBFS load complete');
+            }
+            window['Module']['removeRunDependency']('idbfs-load');
+          });
+        };
+
+        window.Module = {
+          canvas: document.getElementById('canvas'),
+          print: printToOutput,
+          printErr: printErrToOutput,
+          preRun: [idbfsPreRun],
+          onRuntimeInitialized: function () {
+            if (virtualNetEnabled) {
+              console.log(`[GeneralsX] Enabling virtual networking with IP: ${virtualIP.join('.')}`);
+              if (typeof window.Module._GX_Network_EnableVirtual === 'function') {
+                window.Module._GX_Network_EnableVirtual(true);
+              }
+              if (typeof window.Module._GX_Network_SetVirtualIP === 'function') {
+                window.Module._GX_Network_SetVirtualIP(
+                  virtualIP[0],
+                  virtualIP[1],
+                  virtualIP[2],
+                  virtualIP[3]
+                );
+              }
+            }
+          },
+          setStatus: function (text) {
+            // Emscripten's setStatus receives strings like
+            //   "Downloading data... (1234/5678)"
+            // We translate that into the "Downloading runtime" stage of the
+            // overall progress bar (the C++ side hasn't started yet).
+            const m = /\((\d+(?:\.\d+)?)\/(\d+)\)/.exec(text || '');
+            if (m) {
+              const cur = parseFloat(m[1]);
+              const tot = parseFloat(m[2]);
+              const frac = tot > 0 ? cur / tot : 0;
+              // Map download progress onto [0%, DOWNLOAD_WEIGHT] of the bar.
+              setOverallPct(frac * DOWNLOAD_WEIGHT * 100);
+              countEl.textContent = `${Math.round(cur).toLocaleString()} / ${Math.round(tot).toLocaleString()}`;
+            }
+            if (text) {
+              const cleanText = text.replace(/\([^)]*\)/g, '').trim();
+              if (cleanText) labelEl.textContent = cleanText;
+            }
+          },
+          monitorRunDependencies: function (left) {
+            runtimeDepsTotal = Math.max(runtimeDepsTotal, left);
+            if (runtimeDepsTotal > 0) {
+              const done = runtimeDepsTotal - left;
+              setOverallPct((done / runtimeDepsTotal) * DOWNLOAD_WEIGHT * 100);
+              countEl.textContent = `${done}/${runtimeDepsTotal}`;
+            }
+            if (left === 0) {
+              stageEl.textContent = 'Booting engine';
+              labelEl.textContent = 'Handing off to native code';
+            }
+          },
+          onAbort: function (reason) {
+            window.GeneralsX.showError('Runtime aborted: ' + reason);
+          }
+        };
+
+        window.addEventListener('error', function (e) {
+          // Don't blow the overlay up on benign asset-not-found warnings — the
+          // engine handles those gracefully. Only show on real exceptions.
+          const err = e.error || e;
+          const errStr = String(err.stack || err.message || err);
+          if (errStr.includes('unwind') || errStr === 'unwind') {
+            return; // Ignore Asyncify control flow unwinds
+          }
+          window.GeneralsX.showError(errStr);
+        });
+
+        // Press F2 in the browser to toggle the on-page log overlay.
+        window.addEventListener('keydown', function (e) {
+          if (e.key === 'F2') {
+            window.GeneralsX.showOutput(
+                !document.body.classList.contains('gx-debug'));
+            e.preventDefault();
+          }
+        });
+
+        // Initialize Settings Panel Drawer and UI interactivity
+        function initSettings() {
+          var canvasEl = document.getElementById('canvas');
+          var toggleBtn = document.getElementById('gx-settings-toggle');
+          var drawer = document.getElementById('gx-settings-drawer');
+          var lockCursorCb = document.getElementById('gx-setting-lock-cursor');
+          var edgeScrollCb = document.getElementById('gx-setting-edge-scroll');
+          var edgeZoneSlider = document.getElementById('gx-setting-edge-zone');
+          var edgeZoneVal = document.getElementById('gx-setting-edge-zone-val');
+          var fullscreenBtn = document.getElementById('gx-btn-fullscreen');
+
+          if (!toggleBtn || !drawer) return;
+
+          // Toggle drawer visibility
+          toggleBtn.addEventListener('click', function(e) {
+            drawer.classList.toggle('gx-show');
+            e.stopPropagation();
+          });
+
+          // Close drawer when clicking outside
+          document.addEventListener('click', function(e) {
+            if (!drawer.contains(e.target) && !toggleBtn.contains(e.target)) {
+              drawer.classList.remove('gx-show');
+            }
+          });
+
+          // Prevent canvas click logic when clicking settings drawer controls
+          drawer.addEventListener('mousedown', function(e) {
+            e.stopPropagation();
+          });
+
+          // Initial UI setup from localStorage-backed settings
+          lockCursorCb.checked = !!window.GeneralsX.settings.lockCursor;
+          edgeScrollCb.checked = !!window.GeneralsX.settings.edgeScroll;
+          edgeZoneSlider.value = window.GeneralsX.settings.edgeScrollZone;
+          edgeZoneVal.textContent = window.GeneralsX.settings.edgeScrollZone + 'px';
+
+          function saveSettings() {
+            try {
+              localStorage.setItem('generalsx_settings', JSON.stringify(window.GeneralsX.settings));
+            } catch(e) {}
+          }
+
+          lockCursorCb.addEventListener('change', function() {
+            window.GeneralsX.settings.lockCursor = lockCursorCb.checked;
+            saveSettings();
+            if (!lockCursorCb.checked && canvasEl && document.pointerLockElement === canvasEl) {
+              var exit = document.exitPointerLock || document.mozExitPointerLock;
+              if (exit) {
+                try { exit.call(document); } catch (err) {}
+              }
+            }
+          });
+
+          edgeScrollCb.addEventListener('change', function() {
+            window.GeneralsX.settings.edgeScroll = edgeScrollCb.checked;
+            saveSettings();
+          });
+
+          edgeZoneSlider.addEventListener('input', function() {
+            var val = parseInt(edgeZoneSlider.value, 10) || 20;
+            window.GeneralsX.settings.edgeScrollZone = val;
+            edgeZoneVal.textContent = val + 'px';
+            saveSettings();
+          });
+
+          fullscreenBtn.addEventListener('click', function() {
+            if (!document.fullscreenElement && !document.mozFullScreenElement && !document.webkitFullscreenElement) {
+              var docEl = document.documentElement;
+              var req = docEl.requestFullscreen || docEl.mozRequestFullScreen || docEl.webkitRequestFullscreen || docEl.msRequestFullscreen;
+              if (req) {
+                req.call(docEl).then(function() {
+                  fullscreenBtn.textContent = 'Exit Fullscreen';
+                }).catch(function(err) {
+                  console.warn('[GeneralsX] fullscreen request failed:', err);
+                });
+              }
+            } else {
+              var exit = document.exitFullscreen || document.mozCancelFullScreen || document.webkitExitFullscreen || document.msExitFullscreen;
+              if (exit) {
+                exit.call(document).then(function() {
+                  fullscreenBtn.textContent = 'Go Fullscreen';
+                });
+              }
+            }
+          });
+
+          var handleFullscreenChange = function() {
+            var isFs = !!(document.fullscreenElement || document.mozFullScreenElement || document.webkitFullScreenElement);
+            fullscreenBtn.textContent = isFs ? 'Exit Fullscreen' : 'Go Fullscreen';
+          };
+          document.addEventListener('fullscreenchange', handleFullscreenChange);
+          document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+          document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+        }
+
+        if (document.readyState !== 'loading') {
+          initSettings();
+        } else {
+          document.addEventListener('DOMContentLoaded', initSettings);
+        }
+      })();
+    </script>
+
+    {{{ SCRIPT }}}
+  </body>
+</html>

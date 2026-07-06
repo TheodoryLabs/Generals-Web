@@ -1,3 +1,5 @@
+> **Historical document** — this describes the original development machine's workflow/state and is kept for the record. For the current build process see [BUILDING.md](../../BUILDING.md).
+
 # GeneralsX — Link-Only Build Instructions (Mac)
 
 ## What this does
@@ -22,7 +24,7 @@ The instrumented build will print to the browser console:
 ## Prerequisites
 
 - emsdk already installed at
-  `/Users/builduser/GeneralsX-build/emsdk`
+  `<build-root>/emsdk`
   (you've been building with it, so it should be there)
 - ~16 GB free RAM — wasm-opt asyncify is memory-hungry
 
@@ -33,7 +35,7 @@ The instrumented build will print to the browser console:
 Open Terminal, then:
 
 ```bash
-cd /Users/builduser/GeneralsX-build
+cd <build-root>
 bash link_mac.sh
 ```
 
@@ -97,7 +99,7 @@ POOL-DOUBLE-FREE callstack:
 Check the last 100 lines of `build-web/link_mac.log`:
 
 ```bash
-tail -100 /Users/builduser/GeneralsX-build/build-web/link_mac.log
+tail -100 <build-root>/build-web/link_mac.log
 ```
 
 Common causes:

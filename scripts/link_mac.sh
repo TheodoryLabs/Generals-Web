@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+
+# Workspace root — set GX_BUILD_ROOT to your build workspace (contains build-web/, emsdk/, GeneralsX/).
+: "${GX_BUILD_ROOT:=$(pwd)}"
+
 # =============================================================================
 # link_mac.sh — Link-only step for GeneralsX WebAssembly build (Mac)
 #
@@ -14,8 +18,8 @@
 
 set -euo pipefail
 
-BUILD_DIR="/Users/builduser/GeneralsX-build/build-web"
-EMSDK_DIR="/Users/builduser/GeneralsX-build/emsdk"
+BUILD_DIR="${GX_BUILD_ROOT}/build-web"
+EMSDK_DIR="${GX_BUILD_ROOT}/emsdk"
 EMPP="${EMSDK_DIR}/upstream/emscripten/em++"
 LOG="${BUILD_DIR}/link_mac.log"
 

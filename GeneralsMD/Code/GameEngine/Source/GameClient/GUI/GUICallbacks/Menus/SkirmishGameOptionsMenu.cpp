@@ -1039,10 +1039,28 @@ void InitSkirmishGameGadgets()
 	DEBUG_ASSERTCRASH(parentSkirmishGameOptions, ("Could not find the parentSkirmishGameOptions" ));
 	buttonSelectMap = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions,buttonSelectMapID  );
 	DEBUG_ASSERTCRASH(buttonSelectMap, ("Could not find the buttonSelectMap"));
+	if (buttonSelectMap) {
+		Int x, y, w, h;
+		buttonSelectMap->winGetScreenPosition(&x, &y);
+		buttonSelectMap->winGetSize(&w, &h);
+		fprintf(stderr, "GX-TRACE: buttonSelectMap pos=(%d, %d) size=(%d, %d)\n", x, y, w, h);
+	}
 	buttonStart = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions,buttonStartID  );
 	DEBUG_ASSERTCRASH(buttonStart, ("Could not find the buttonStart"));
+	if (buttonStart) {
+		Int x, y, w, h;
+		buttonStart->winGetScreenPosition(&x, &y);
+		buttonStart->winGetSize(&w, &h);
+		fprintf(stderr, "GX-TRACE: buttonStart pos=(%d, %d) size=(%d, %d)\n", x, y, w, h);
+	}
 	buttonExit = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions,  buttonExitID);
 	DEBUG_ASSERTCRASH(buttonExit, ("Could not find the buttonExit"));
+	if (buttonExit) {
+		Int x, y, w, h;
+		buttonExit->winGetScreenPosition(&x, &y);
+		buttonExit->winGetSize(&w, &h);
+		fprintf(stderr, "GX-TRACE: buttonExit pos=(%d, %d) size=(%d, %d)\n", x, y, w, h);
+	}
 	textEntryMapDisplay = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, textEntryMapDisplayID );
 	DEBUG_ASSERTCRASH(textEntryMapDisplay, ("Could not find the textEntryMapDisplay"));
 	buttonReset = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, buttonResetID );

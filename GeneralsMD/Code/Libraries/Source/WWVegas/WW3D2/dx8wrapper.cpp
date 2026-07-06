@@ -110,6 +110,31 @@ static HWND _Hwnd = nullptr;
 bool DX8Wrapper::IsInitted = false;
 bool DX8Wrapper::_EnableTriangleDraw = true;
 
+// GeneralsX @feature WebPort 2026-05-05 — black-canvas triage
+// Counters sampled from EmscriptenMain.cpp once a second.
+extern "C" int gx_dx8_draw_triangles_calls = 0;
+extern "C" int gx_dx8_sorting_path = 0;
+extern "C" int gx_dx8_path = 0;
+extern "C" int gx_dx8_draw_called = 0;
+extern "C" int gx_dx8_draw_polygon_low_skip = 0;
+extern "C" int gx_dx8_draw_triangle_disabled = 0;
+extern "C" int gx_dx8_draw_dispatched = 0;
+extern "C" int gx_dx8_draw_zero_indexbuffer = 0;
+extern "C" int gx_dx8_draw_zero_vertexbuffer = 0;
+
+// d3d8 stub DrawIndexedPrimitive counters (sampled from EmscriptenMain.cpp).
+// Bumped from inline DrawIndexedPrimitive in emscripten_compat/d3d8.h.
+extern "C" int gx_d3d_dip_called = 0;
+extern "C" int gx_d3d_dip_no_vb = 0;
+extern "C" int gx_d3d_dip_empty_vb = 0;
+extern "C" int gx_d3d_dip_no_ib = 0;
+extern "C" int gx_d3d_dip_empty_ib = 0;
+extern "C" int gx_d3d_dip_drew = 0;
+extern "C" int gx_d3d_setstreamsource_calls = 0;
+extern "C" int gx_d3d_setstreamsource_null = 0;
+extern "C" int gx_d3d_setindices_calls = 0;
+extern "C" int gx_d3d_setindices_null = 0;
+
 int DX8Wrapper::CurRenderDevice = -1;
 int DX8Wrapper::ResolutionWidth = DEFAULT_RESOLUTION_WIDTH;
 int DX8Wrapper::ResolutionHeight = DEFAULT_RESOLUTION_HEIGHT;
@@ -2238,12 +2263,32 @@ void DX8Wrapper::Draw_Sorting_IB_VB(unsigned primitive_type,
 //
 // ----------------------------------------------------------------------------
 
+extern "C" int gx_dx8_buftype_dx8 = 0;
+extern "C" int gx_dx8_buftype_dyn_dx8 = 0;
+extern "C" int gx_dx8_buftype_sort = 0;
+extern "C" int gx_dx8_buftype_dyn_sort = 0;
+extern "C" int gx_dx8_buftype_other = 0;
+
 void DX8Wrapper::Draw(unsigned primitive_type, unsigned short start_index,
                       unsigned short polygon_count,
                       unsigned short min_vertex_index,
                       unsigned short vertex_count) {
-  if (DrawPolygonLowBoundLimit && DrawPolygonLowBoundLimit >= polygon_count)
+  ++gx_dx8_draw_called;
+  // Sample the vertex buffer type the engine set up before Draw was called.
+  // If it's a SORTING type, Apply_Render_State_Changes won't call
+  // SetStreamSource (the sorting types are normally drained by
+  // Draw_Sorting_IB_VB), so the d3d8 stub's current_vb stays null.
+  switch (render_state.vertex_buffer_types[0]) {
+    case BUFFER_TYPE_DX8: ++gx_dx8_buftype_dx8; break;
+    case BUFFER_TYPE_DYNAMIC_DX8: ++gx_dx8_buftype_dyn_dx8; break;
+    case BUFFER_TYPE_SORTING: ++gx_dx8_buftype_sort; break;
+    case BUFFER_TYPE_DYNAMIC_SORTING: ++gx_dx8_buftype_dyn_sort; break;
+    default: ++gx_dx8_buftype_other; break;
+  }
+  if (DrawPolygonLowBoundLimit && DrawPolygonLowBoundLimit >= polygon_count) {
+    ++gx_dx8_draw_polygon_low_skip;
     return;
+  }
 
   DX8_THREAD_ASSERT();
   SNAPSHOT_SAY(("DX8 - draw"));
@@ -2251,8 +2296,13 @@ void DX8Wrapper::Draw(unsigned primitive_type, unsigned short start_index,
   Apply_Render_State_Changes();
 
   // Debug feature to disable triangle drawing...
-  if (!_Is_Triangle_Draw_Enabled())
+  if (!_Is_Triangle_Draw_Enabled()) {
+    ++gx_dx8_draw_triangle_disabled;
     return;
+  }
+  ++gx_dx8_draw_dispatched;
+  if (render_state.index_buffer == nullptr) ++gx_dx8_draw_zero_indexbuffer;
+  if (render_state.vertex_buffers[0] == nullptr) ++gx_dx8_draw_zero_vertexbuffer;
 
 #ifdef MESH_RENDER_SNAPSHOT_ENABLED
   if (WW3D::Is_Snapshot_Activated()) {
@@ -2385,11 +2435,14 @@ void DX8Wrapper::Draw_Triangles(unsigned buffer_type,
                                 unsigned short polygon_count,
                                 unsigned short min_vertex_index,
                                 unsigned short vertex_count) {
+  ++gx_dx8_draw_triangles_calls;
   if (buffer_type == BUFFER_TYPE_SORTING ||
       buffer_type == BUFFER_TYPE_DYNAMIC_SORTING) {
+    ++gx_dx8_sorting_path;
     SortingRendererClass::Insert_Triangles(start_index, polygon_count,
                                            min_vertex_index, vertex_count);
   } else {
+    ++gx_dx8_path;
     Draw(D3DPT_TRIANGLELIST, start_index, polygon_count, min_vertex_index,
          vertex_count);
   }
@@ -2408,6 +2461,20 @@ void DX8Wrapper::Draw_Triangles(unsigned short start_index,
   Draw(D3DPT_TRIANGLELIST, start_index, polygon_count, min_vertex_index,
        vertex_count);
 }
+
+void DX8Wrapper::Draw_Triangles_Instanced(unsigned short start_index,
+                                          unsigned short polygon_count,
+                                          unsigned short min_vertex_index,
+                                          unsigned short vertex_count,
+                                          const float* world_matrices,
+                                          unsigned int instance_count) {
+  DX8_THREAD_ASSERT();
+  Apply_Render_State_Changes();
+#ifdef __EMSCRIPTEN__
+  GLES3_Draw_Triangles_Instanced(GLES3_PT_TRIANGLELIST, start_index, polygon_count, min_vertex_index, vertex_count, world_matrices, instance_count);
+#endif
+}
+
 
 // ----------------------------------------------------------------------------
 //
