@@ -1,25 +1,25 @@
-# Generals-Web — Setup Guide
+# Generals-Web. Setup Guide
 
-*How to run C&C Generals — Zero Hour in your browser.*
+*How to run C&C Generals Zero Hour in your browser.*
 
 This guide walks you through getting the game running in your browser from scratch.
 
-> You must own a legal copy of the game — it's included in [*C&C The Ultimate Collection* on Steam](https://store.steampowered.com/bundle/39394) and the EA App. No game assets are included with this project; your files stay on your machine (see [NOTICE](NOTICE)).
+> You must own a legal copy of the game, it's included in [*C&C The Ultimate Collection* on Steam](https://store.steampowered.com/bundle/39394) and the EA App. No game assets are included with this project; your files stay on your machine (see [NOTICE](NOTICE)).
 
 ---
 
 ## What You Need
 
-1. **The web build** — download from the [latest GitHub Release](https://github.com/TheodoryLabs/Generals-Web/releases/latest)
-   *(note: release `v0.4.0-web` predates the working renderer — prefer the newest release, or build from source via [BUILDING.md](BUILDING.md))*
-2. **The game asset files** — you must own a legal copy of C&C Generals Zero Hour
-3. **Python 3** — to run the local server (comes pre-installed on macOS/Linux)
+1. **The web build**: download from the [latest GitHub Release](https://github.com/TheodoryLabs/Generals-Web/releases/latest)
+   *(note: release `v0.4.0-web` predates the working renderer, prefer the newest release, or build from source via [BUILDING.md](BUILDING.md))*
+2. **The game asset files**: you must own a legal copy of C&C Generals Zero Hour
+3. **Python 3**: to run the local server (comes pre-installed on macOS/Linux)
 
 ---
 
-## Step 1 — Get the Game Assets
+## Step 1. Get the Game Assets
 
-The `.big` files contain all of the game's textures, models, maps, sounds, and data. They are **not included** in this repo — you need to get them from your own game installation.
+The `.big` files contain all of the game's textures, models, maps, sounds, and data. They are **not included** in this repo, you need to get them from your own game installation.
 
 ### If you own the game on Steam
 1. In Steam, right-click **C&C: The Ultimate Collection** → **Manage** → **Browse local files**
@@ -31,7 +31,7 @@ The `.big` files are in your Zero Hour installation directory (default: `C:\Prog
 
 ### Files you need to copy
 
-Copy these files — these are the **required** ones for startup:
+Copy these files, these are the **required** ones for startup:
 
 | File | Size | Contents |
 |------|------|----------|
@@ -53,11 +53,11 @@ Copy these files — these are the **required** ones for startup:
 | `PatchINI.big` | ~52 KB | Patch overrides |
 | `gensecZH.big` | ~769 KB | Security/checksum data |
 
-> The audio archives (`AudioZH.big`, `MusicZH.big`, `SpeechZH.big`, `SpeechEnglishZH.big`) are mounted lazily after the menu loads — copy them too if you want the audio pipeline exercised as it comes online.
+> The audio archives (`AudioZH.big`, `MusicZH.big`, `SpeechZH.big`, `SpeechEnglishZH.big`) are mounted lazily after the menu loads, copy them too if you want the audio pipeline exercised as it comes online.
 
 ---
 
-## Step 2 — Set Up Your Folder
+## Step 2. Set Up Your Folder
 
 Create a folder anywhere on your computer. Download the four files from the [GitHub Release](https://github.com/TheodoryLabs/Generals-Web/releases/latest) and create an `assets/` subfolder with your `.big` files. Your folder should look exactly like this:
 
@@ -75,7 +75,7 @@ generals-web/
 
 ---
 
-## Step 3 — Start the Server
+## Step 3. Start the Server
 
 Open a terminal, navigate to your folder, and run:
 
@@ -95,7 +95,7 @@ Press Ctrl+C to stop.
 
 ---
 
-## Step 4 — Open in Browser
+## Step 4. Open in Browser
 
 Open **Chrome** or **Firefox** and go to:
 
@@ -103,10 +103,10 @@ Open **Chrome** or **Firefox** and go to:
 http://localhost:8888/GeneralsZH.html
 ```
 
-Open **DevTools** first (`F12` → Console tab) — the console shows loading progress and any errors.
+Open **DevTools** first (`F12` → Console tab), the console shows loading progress and any errors.
 
 The game will:
-1. Load and parse all `.big` archive headers (~1–3 seconds)
+1. Load and parse all `.big` archive headers (~1-3 seconds)
 2. Mount ~16,500 files into the in-memory filesystem
 3. Start the game engine and render the first frame
 
@@ -124,7 +124,7 @@ The game will:
 
 ### "SharedArrayBuffer is not defined"
 - The server's `Cross-Origin-Opener-Policy` headers aren't reaching the browser
-- Make sure you're using the included `serve.py` — other basic servers won't set these headers
+- Make sure you're using the included `serve.py`: other basic servers won't set these headers
 - Try Chrome if Firefox is having issues
 
 ### Out of memory / tab crash
@@ -147,4 +147,4 @@ The game will:
 | OS | Windows, macOS, or Linux |
 | Python | 3.6+ (for the server) |
 
-Safari is **not supported** — it has incomplete WebAssembly Asyncify support.
+Safari is **not supported**: it has incomplete WebAssembly Asyncify support.

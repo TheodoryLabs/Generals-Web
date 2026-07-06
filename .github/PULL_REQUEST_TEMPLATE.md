@@ -1,5 +1,5 @@
 <!-- Title format: `type: Description` or `type(scope): Description` (uppercase first letter).
-     Allowed types are in .github/workflows/valid-tags.txt — CI enforces this. -->
+     Allowed types are in .github/workflows/valid-tags.txt. CI enforces this. -->
 
 ## Summary
 
@@ -7,8 +7,8 @@
 
 ## Checklist
 
-- [ ] I built the project ([BUILDING.md](../blob/main/BUILDING.md)) and **verified this change in a browser** — not just that it compiles
-- [ ] **No game assets are included** — no `.big`, `.bik`, textures, audio, models, or maps, not even as test fixtures (see [NOTICE](../blob/main/NOTICE))
+- [ ] I built the project ([BUILDING.md](../blob/main/BUILDING.md)) and **verified this change in a browser**: not just that it compiles
+- [ ] **No game assets are included**: no `.big`, `.bik`, textures, audio, models, or maps, not even as test fixtures (see [NOTICE](../blob/main/NOTICE))
 - [ ] If this came out of a porting/debugging session, I added an entry to [`docs/web-port/PORTING_LOG.md`](../blob/main/docs/web-port/PORTING_LOG.md)
 - [ ] This contribution is GPL-3.0-compatible and contains no code reverse-engineered from retail binaries
 
@@ -26,4 +26,4 @@
 - [ ] Edge (version: )
 - [ ] Other:
 
-**Build type:** <!-- RelWithDebInfo (default) / other — see BUILDING.md -->
+**Build type:** <!-- RelWithDebInfo (default) / other, see BUILDING.md -->

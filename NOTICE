@@ -1,4 +1,4 @@
-Generals-Web is a community port of the Command & Conquer: Generals — Zero
+Generals-Web is a community port of the Command & Conquer: Generals. Zero
 Hour game engine to WebAssembly/WebGL. It is derived from source code released
 by Electronic Arts Inc. under GPL-3.0 (with additional terms), via the
 TheSuperHackers/GeneralsGameCode community project
@@ -12,7 +12,7 @@ original program.
 
 No game assets are included or distributed. This repository and its releases
 contain engine code only. To play, you must own a legitimate copy of C&C
-Generals — Zero Hour (available in C&C The Ultimate Collection on Steam,
+Generals Zero Hour (available in C&C The Ultimate Collection on Steam,
 https://store.steampowered.com/bundle/39394, and the EA App) and load the game
 data from your own installation. Your files never leave your machine.
 
