@@ -67,3 +67,53 @@ console logging.
   run what DevTools couldn't.
 - Always confirm the *running* browser version from the page (user agent),
   not from the installed app version.
+
+---
+
+## Part 2 (same day, later): the fuller truth
+
+Continued live debugging falsified parts of the account above and sharpened
+the rest. Corrections, in the spirit of honest engineering:
+
+1. **The crash is probabilistic on every build.** The "known-good" v0.5.1
+   binary also crashed at match start (roughly 1 launch in 4 on the affected
+   machine); the log-gated v0.5.2 build crashed nearly every launch. Single
+   clean runs prove nothing — only repeated trials count. Our one triumphant
+   "it works!!" run early in the day changed three variables at once and led
+   the investigation astray for hours.
+2. **`--js-flags=--no-compact` is only a partial shield.** Crashes were
+   reproduced with the flag verified active in the browser process. The V8
+   fault is in GC *evacuation*, which also runs outside full-GC compaction
+   (scavenger path), so disabling compaction merely lowers the odds.
+3. **Why removing log spam made it worse:** the old build's enormous
+   trace output accidentally *paced* the map-load fetch loop. Each `.big`
+   read is a synchronous main-thread XHR that materializes the response as
+   a JS string plus a copy loop; with logging compiled out, those
+   allocations hit the young generation at maximum rate with no gaps —
+   exactly the conditions under which the broken evacuation path fires.
+   The log spam was a splint, not the disease. (The largest single reads —
+   whole-file loads such as the localization archive at match start —
+   produce multi-megabyte single-gulp strings; every recorded crash died on
+   precisely that fetch.)
+4. **The definitive experiment:** the identical binaries were driven to
+   match start repeatedly, via an automated CDP harness, on Chrome for
+   Testing 150.0.7871.46 (same pre-fix V8 as the affected stable Chrome)
+   and on 149.0.7827.201 (post-fix V8). Crashes reproduce only on the
+   pre-fix V8; on the fixed browser every build, including the "cursed"
+   v0.5.2, plays flawlessly and noticeably faster.
+5. **Instrumentation contaminates.** Our crash-diagnosis console logger
+   (wrapping every console call during a log storm) measurably added young-
+   generation allocations at the worst moment. Diagnosis tooling for GC-
+   sensitive bugs must itself be allocation-light (final version: error
+   hooks + a 2s heartbeat, no console wrapping).
+
+**Engine-side hardening that ships as a result:** the VFS now (a) serves
+small reads from cached 8MB readahead windows instead of issuing hundreds
+of tiny synchronous XHRs, and (b) streams reads larger than 4MB in 4MB
+sub-fetches written directly into the wasm heap, so no multi-megabyte JS
+string is ever materialized in one gulp. This does not fix the browser's
+GC — nothing on our side can — but it removes the port's worst-case
+allocation pattern, cuts map-load time, and drops the crash odds on
+affected Chrome builds substantially. Players on affected Chrome versions
+should still prefer a fixed browser (see README Known Issues /
+`scripts/play-web.sh`).
