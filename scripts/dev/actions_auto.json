@@ -1,0 +1,10 @@
+[
+  {"op": "navigate"},
+  {"op": "wait_console", "pattern": "gxShowStartButton() called", "timeout": 300},
+  {"op": "sleep", "s": 2},
+  {"op": "canvas_rect"},
+  {"op": "heartbeat"},
+  {"op": "click_begin"},
+  {"op": "wait_ingame_stable", "ingame_timeout": 240, "stable": 60},
+  {"op": "screenshot", "name": "final_state"}
+]

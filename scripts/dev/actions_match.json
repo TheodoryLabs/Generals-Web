@@ -1,0 +1,18 @@
+[
+  {"op": "navigate"},
+  {"op": "wait_console", "pattern": "gxShowStartButton() called", "timeout": 300},
+  {"op": "sleep", "s": 2},
+  {"op": "canvas_rect"},
+  {"op": "heartbeat"},
+  {"op": "click_begin"},
+  {"op": "wait_idle", "timeout": 150, "big_quiet": 5.0},
+  {"op": "sleep", "s": 3},
+  {"op": "click_retry", "x": 644, "y": 294, "label": "skirmish",
+   "pattern": "mappreviews", "attempts": 5, "wait_each": 10},
+  {"op": "wait_idle", "timeout": 90, "big_quiet": 4.0},
+  {"op": "sleep", "s": 3},
+  {"op": "click_retry", "x": 181, "y": 531, "label": "start",
+   "pattern": "inGame=1", "attempts": 3, "wait_each": 55},
+  {"op": "wait_ingame_stable", "ingame_timeout": 10, "stable": 60},
+  {"op": "screenshot", "name": "final_state"}
+]
