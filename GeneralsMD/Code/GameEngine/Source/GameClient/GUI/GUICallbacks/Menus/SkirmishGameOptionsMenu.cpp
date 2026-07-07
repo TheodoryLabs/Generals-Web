@@ -29,6 +29,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include <Utility/gx_trace.h>
 
 
 #include "Common/BattleHonors.h"
@@ -1043,7 +1044,7 @@ void InitSkirmishGameGadgets()
 		Int x, y, w, h;
 		buttonSelectMap->winGetScreenPosition(&x, &y);
 		buttonSelectMap->winGetSize(&w, &h);
-		fprintf(stderr, "GX-TRACE: buttonSelectMap pos=(%d, %d) size=(%d, %d)\n", x, y, w, h);
+		GX_TRACE_LOG( "GX-TRACE: buttonSelectMap pos=(%d, %d) size=(%d, %d)\n", x, y, w, h);
 	}
 	buttonStart = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions,buttonStartID  );
 	DEBUG_ASSERTCRASH(buttonStart, ("Could not find the buttonStart"));
@@ -1051,7 +1052,7 @@ void InitSkirmishGameGadgets()
 		Int x, y, w, h;
 		buttonStart->winGetScreenPosition(&x, &y);
 		buttonStart->winGetSize(&w, &h);
-		fprintf(stderr, "GX-TRACE: buttonStart pos=(%d, %d) size=(%d, %d)\n", x, y, w, h);
+		GX_TRACE_LOG( "GX-TRACE: buttonStart pos=(%d, %d) size=(%d, %d)\n", x, y, w, h);
 	}
 	buttonExit = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions,  buttonExitID);
 	DEBUG_ASSERTCRASH(buttonExit, ("Could not find the buttonExit"));
@@ -1059,7 +1060,7 @@ void InitSkirmishGameGadgets()
 		Int x, y, w, h;
 		buttonExit->winGetScreenPosition(&x, &y);
 		buttonExit->winGetSize(&w, &h);
-		fprintf(stderr, "GX-TRACE: buttonExit pos=(%d, %d) size=(%d, %d)\n", x, y, w, h);
+		GX_TRACE_LOG( "GX-TRACE: buttonExit pos=(%d, %d) size=(%d, %d)\n", x, y, w, h);
 	}
 	textEntryMapDisplay = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, textEntryMapDisplayID );
 	DEBUG_ASSERTCRASH(textEntryMapDisplay, ("Could not find the textEntryMapDisplay"));

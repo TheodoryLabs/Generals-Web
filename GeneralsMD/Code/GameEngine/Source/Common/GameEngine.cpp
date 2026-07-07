@@ -29,6 +29,7 @@
 // Author: Michael S. Booth, April 2001
 
 #include "PreRTS.h" // This must go first in EVERY cpp file in the GameEngine
+#include <Utility/gx_trace.h>
 
 #if defined(__EMSCRIPTEN__)
 #include <emscripten.h>
@@ -937,7 +938,7 @@ void GameEngine::init() {
       MapCache::const_iterator it = TheMapCache->find(lowerName);
       if (it == TheMapCache->end()) {
 #ifdef __EMSCRIPTEN__
-        fprintf(stderr,
+        GX_TRACE_LOG(
                 "GX-TRACE: WebPort: MapCache miss for shellmap '%s' — "
                 "keeping m_shellMapOn=TRUE anyway (tracers active)\n",
                 lowerName.str());

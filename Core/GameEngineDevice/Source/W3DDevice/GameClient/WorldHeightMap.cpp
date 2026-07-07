@@ -29,6 +29,7 @@
 #define INSTANTIATE_WELL_KNOWN_KEYS
 
 #include "windows.h"
+#include <Utility/gx_trace.h>
 #include "stdlib.h"
 #include "Common/STLTypedefs.h"
 
@@ -493,11 +494,11 @@ WorldHeightMap::WorldHeightMap(ChunkInputStream *pStrm, Bool logicalDataOnly):
 	}
 
 #ifdef __EMSCRIPTEN__
-	{ FILE *_t=fopen("/gx_trace.log","a"); if(_t){fprintf(_t,"GX-TRACE: WHM-ctor:before-DataChunkInput logicalOnly=%d\n",(int)logicalDataOnly);fclose(_t);} }
+	GX_TRACE_FILE_LOG("GX-TRACE: WHM-ctor:before-DataChunkInput logicalOnly=%d\n",(int)logicalDataOnly);
 #endif
 	DataChunkInput file( pStrm );
 #ifdef __EMSCRIPTEN__
-	{ FILE *_t=fopen("/gx_trace.log","a"); if(_t){fprintf(_t,"GX-TRACE: WHM-ctor:after-DataChunkInput\n");fclose(_t);} }
+	GX_TRACE_FILE_LOG("GX-TRACE: WHM-ctor:after-DataChunkInput\n");
 #endif
 
 	if (logicalDataOnly) {
@@ -518,16 +519,16 @@ WorldHeightMap::WorldHeightMap(ChunkInputStream *pStrm, Bool logicalDataOnly):
 		file.registerParser( "GlobalLighting", AsciiString::TheEmptyString, ParseLightingDataChunk );
 	}
 #ifdef __EMSCRIPTEN__
-	{ FILE *_t=fopen("/gx_trace.log","a"); if(_t){fprintf(_t,"GX-TRACE: WHM-ctor:before-file.parse logicalOnly=%d\n",(int)logicalDataOnly);fclose(_t);} }
+	GX_TRACE_FILE_LOG("GX-TRACE: WHM-ctor:before-file.parse logicalOnly=%d\n",(int)logicalDataOnly);
 #endif
 	if (!file.parse(this)) {
 #ifdef __EMSCRIPTEN__
-		{ FILE *_t=fopen("/gx_trace.log","a"); if(_t){fprintf(_t,"GX-TRACE: WHM-ctor:parse-RETURNED-FALSE\n");fclose(_t);} }
+		GX_TRACE_FILE_LOG("GX-TRACE: WHM-ctor:parse-RETURNED-FALSE\n");
 #endif
 		throw(ERROR_CORRUPT_FILE_FORMAT);
 	}
 #ifdef __EMSCRIPTEN__
-	{ FILE *_t=fopen("/gx_trace.log","a"); if(_t){fprintf(_t,"GX-TRACE: WHM-ctor:after-file.parse\n");fclose(_t);} }
+	GX_TRACE_FILE_LOG("GX-TRACE: WHM-ctor:after-file.parse\n");
 #endif
 	// patch bad maps.
 	if (!logicalDataOnly) {
@@ -945,12 +946,12 @@ Bool WorldHeightMap::ParseSizeOnlyInChunk(DataChunkInput &file, DataChunkInfo *i
 Bool WorldHeightMap::ParseSizeOnly(DataChunkInput &file, DataChunkInfo *info, void *userData)
 {
 #ifdef __EMSCRIPTEN__
-	{ FILE *_t=fopen("/gx_trace.log","a"); if(_t){fprintf(_t,"GX-TRACE: ParseSizeOnly:ENTER ver=%d label='%s'\n",(int)info->version,info->label.str());fclose(_t);} }
+	GX_TRACE_FILE_LOG("GX-TRACE: ParseSizeOnly:ENTER ver=%d label='%s'\n",(int)info->version,info->label.str());
 #endif
 	m_width = file.readInt();
 	m_height = file.readInt();
 #ifdef __EMSCRIPTEN__
-	{ FILE *_t=fopen("/gx_trace.log","a"); if(_t){fprintf(_t,"GX-TRACE: ParseSizeOnly:width=%d height=%d\n",m_width,m_height);fclose(_t);} }
+	GX_TRACE_FILE_LOG("GX-TRACE: ParseSizeOnly:width=%d height=%d\n",m_width,m_height);
 #endif
 	if (info->version >= K_HEIGHT_MAP_VERSION_3) {
 		m_borderSize = file.readInt();
@@ -973,18 +974,18 @@ Bool WorldHeightMap::ParseSizeOnly(DataChunkInput &file, DataChunkInfo *info, vo
 
 	m_dataSize = file.readInt();
 #ifdef __EMSCRIPTEN__
-	{ FILE *_t=fopen("/gx_trace.log","a"); if(_t){fprintf(_t,"GX-TRACE: ParseSizeOnly:dataSize=%d (W*H=%d)\n",m_dataSize,m_width*m_height);fclose(_t);} }
+	GX_TRACE_FILE_LOG("GX-TRACE: ParseSizeOnly:dataSize=%d (W*H=%d)\n",m_dataSize,m_width*m_height);
 #endif
 	m_data = MSGNEW("WorldHeightMap_ParseSizeOnly") UnsignedByte[m_dataSize];
 	if (m_dataSize <= 0 || (m_dataSize != (m_width*m_height))) {
 #ifdef __EMSCRIPTEN__
-		{ FILE *_t=fopen("/gx_trace.log","a"); if(_t){fprintf(_t,"GX-TRACE: ParseSizeOnly:CORRUPT-throw dataSize=%d w*h=%d\n",m_dataSize,m_width*m_height);fclose(_t);} }
+		GX_TRACE_FILE_LOG("GX-TRACE: ParseSizeOnly:CORRUPT-throw dataSize=%d w*h=%d\n",m_dataSize,m_width*m_height);
 #endif
 		throw ERROR_CORRUPT_FILE_FORMAT	;
 	}
 	file.readArrayOfBytes((char *)m_data, m_dataSize);
 #ifdef __EMSCRIPTEN__
-	{ FILE *_t=fopen("/gx_trace.log","a"); if(_t){fprintf(_t,"GX-TRACE: ParseSizeOnly:after-readArrayOfBytes\n");fclose(_t);} }
+	GX_TRACE_FILE_LOG("GX-TRACE: ParseSizeOnly:after-readArrayOfBytes\n");
 #endif
 	// Resize me.
 	if (info->version == K_HEIGHT_MAP_VERSION_1) {

@@ -28,6 +28,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include <Utility/gx_trace.h>
 
 #include "Common/AudioAffect.h"
 #include "Common/AudioHandleSpecialValues.h"
@@ -1102,7 +1103,7 @@ void GameLogic::setGameMode( GameMode mode )
 // ------------------------------------------------------------------------------------------------
 void GameLogic::startNewGame( Bool loadingSaveGame )
 {
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) && GX_TRACE_LOGGING
 #define GX_TRACE(tag) do { \
 	FILE *_t = fopen("/gx_trace.log", "a"); \
 	if (_t) { fprintf(_t, "GX-TRACE: startNewGame:%s mode=%d save=%d\n", \

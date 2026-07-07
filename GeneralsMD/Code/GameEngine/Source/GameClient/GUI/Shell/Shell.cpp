@@ -29,6 +29,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include <Utility/gx_trace.h>
 
 #include "Common/RandomValue.h"
 #include "GameClient/Shell.h"
@@ -188,18 +189,18 @@ void Shell::update()
 	static int s_shellUpdateSpam = 0;
 	if (s_shellUpdateSpam++ % 30 == 0)
 	{
-		fprintf(stderr, "GX-TRACE: Shell::update entered! count=%d, now=%d, lastUpdate=%d, m_screenCount=%d\n",
+		GX_TRACE_LOG( "GX-TRACE: Shell::update entered! count=%d, now=%d, lastUpdate=%d, m_screenCount=%d\n",
 			s_shellUpdateSpam, now, lastUpdate, m_screenCount);
 		for( Int i = m_screenCount - 1; i >= 0; i-- )
 		{
 			if (m_screenStack[i])
 			{
-				fprintf(stderr, "GX-TRACE:   screen[%d] = '%s', hidden=%d\n",
+				GX_TRACE_LOG( "GX-TRACE:   screen[%d] = '%s', hidden=%d\n",
 					i, m_screenStack[i]->getFilename().str(), (int)m_screenStack[i]->isHidden());
 			}
 			else
 			{
-				fprintf(stderr, "GX-TRACE:   screen[%d] = NULL\n", i);
+				GX_TRACE_LOG( "GX-TRACE:   screen[%d] = NULL\n", i);
 			}
 		}
 	}

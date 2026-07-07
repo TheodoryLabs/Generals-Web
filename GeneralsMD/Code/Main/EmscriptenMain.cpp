@@ -14,6 +14,7 @@
 
 // SYSTEM INCLUDES
 #include <SDL.h>
+#include <Utility/gx_trace.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -835,7 +836,7 @@ int main(int argc, char *argv[]) {
         } catch(e) {}
         return 0;
       }));
-      fprintf(stderr,
+      GX_TRACE_LOG(
               "GX-TRACE: WebPort post-init: m_shellMapOn was=%d, opt_in=%d, "
               "shellmap='%s'\n",
               (int)TheGlobalData->m_shellMapOn, opt_in,

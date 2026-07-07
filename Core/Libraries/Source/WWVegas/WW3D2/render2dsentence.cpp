@@ -38,6 +38,7 @@
 *- - - - - - - */
 
 #include "render2dsentence.h"
+#include <Utility/gx_trace.h>
 #include "dx8wrapper.h"
 #include "surfaceclass.h"
 #include "texture.h"
@@ -1268,7 +1269,7 @@ void FontCharsClass::Blit_Char(WCHAR ch, uint16 *dest_ptr, int dest_stride,
     uint16 *src_ptr = data->Buffer;
     uint16 *dest_row = dest_ptr + (dest_inc * y) + x;
 
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) && GX_TRACE_LOGGING
     static int blit_calls = 0;
     static int blit_nonzero_total = 0;
     int local_nonzero = 0;
@@ -1285,7 +1286,7 @@ void FontCharsClass::Blit_Char(WCHAR ch, uint16 *dest_ptr, int dest_stride,
           curData |= dest_row[col];
         }
         dest_row[col] = curData;
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) && GX_TRACE_LOGGING
         if (curData != 0) local_nonzero++;
 #endif
         src_ptr++;
@@ -1293,7 +1294,7 @@ void FontCharsClass::Blit_Char(WCHAR ch, uint16 *dest_ptr, int dest_stride,
       dest_row += dest_inc;
     }
 
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) && GX_TRACE_LOGGING
     blit_calls++;
     blit_nonzero_total += local_nonzero;
     if (blit_calls <= 8 || (blit_calls % 200) == 0) {

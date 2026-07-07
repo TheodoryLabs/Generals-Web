@@ -43,6 +43,7 @@
 //----------------------------------------------------------------------------
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include <Utility/gx_trace.h>
 #include "Common/GameAudio.h"
 
 #include "Common/AudioAffect.h"
@@ -387,7 +388,7 @@ AudioHandle AudioManager::addAudioEvent(const AudioEventRTS *eventToAdd)
 		return AHSV_NoSound;
 	}
 
-	printf("[GameAudio] addAudioEvent: Received sound '%s'\n", eventToAdd->getEventName().str());
+	GX_TRACE_LOG("[GameAudio] addAudioEvent: Received sound '%s'\n", eventToAdd->getEventName().str());
 
 	if (!eventToAdd->getAudioEventInfo()) {
 		getInfoForAudioEvent(eventToAdd);
@@ -405,24 +406,24 @@ AudioHandle AudioManager::addAudioEvent(const AudioEventRTS *eventToAdd)
 	{
 		case AT_Music:
 			if (!isOn(AudioAffect_Music)) {
-				printf("[GameAudio] addAudioEvent: AT_Music is off\n");
+				GX_TRACE_LOG("[GameAudio] addAudioEvent: AT_Music is off\n");
 				return AHSV_NoSound;
 			}
 			break;
 		case AT_SoundEffect:
 			if (!isOn(AudioAffect_Sound) || !isOn(AudioAffect_Sound3D)) {
-				printf("[GameAudio] addAudioEvent: AT_SoundEffect is off (sound=%d, sound3D=%d)\n", isOn(AudioAffect_Sound), isOn(AudioAffect_Sound3D));
+				GX_TRACE_LOG("[GameAudio] addAudioEvent: AT_SoundEffect is off (sound=%d, sound3D=%d)\n", isOn(AudioAffect_Sound), isOn(AudioAffect_Sound3D));
 				return AHSV_NoSound;
 			}
 			break;
 		case AT_Streaming:
 			// if we're currently playing uninterruptable speech, then disallow the addition of this sample
 			if (getDisallowSpeech()) {
-				printf("[GameAudio] addAudioEvent: disallow speech is TRUE\n");
+				GX_TRACE_LOG("[GameAudio] addAudioEvent: disallow speech is TRUE\n");
 				return AHSV_NoSound;
 			}
 			if (!isOn(AudioAffect_Speech)) {
-				printf("[GameAudio] addAudioEvent: AT_Streaming is off\n");
+				GX_TRACE_LOG("[GameAudio] addAudioEvent: AT_Streaming is off\n");
 				return AHSV_NoSound;
 			}
 			break;
@@ -440,7 +441,7 @@ AudioHandle AudioManager::addAudioEvent(const AudioEventRTS *eventToAdd)
 
 	if (!logicalAudio && notForLocal)
 	{
-		printf("[GameAudio] addAudioEvent: not for local (logicalAudio=%d, notForLocal=%d)\n", logicalAudio, notForLocal);
+		GX_TRACE_LOG("[GameAudio] addAudioEvent: not for local (logicalAudio=%d, notForLocal=%d)\n", logicalAudio, notForLocal);
 		return AHSV_NotForLocal;
 	}
 
@@ -461,30 +462,30 @@ AudioHandle AudioManager::addAudioEvent(const AudioEventRTS *eventToAdd)
 #if RETAIL_COMPATIBLE_CRC
 	if (notForLocal)
 	{
-		printf("[GameAudio] addAudioEvent: RETAIL_COMPATIBLE_CRC not for local\n");
+		GX_TRACE_LOG("[GameAudio] addAudioEvent: RETAIL_COMPATIBLE_CRC not for local\n");
 		releaseAudioEventRTS(audioEvent);
 		return AHSV_NotForLocal;
 	}
 #endif
 
-	printf("[GameAudio] addAudioEvent: sound '%s' volume=%f, minVolume=%f, filename='%s'\n",
+	GX_TRACE_LOG("[GameAudio] addAudioEvent: sound '%s' volume=%f, minVolume=%f, filename='%s'\n",
 		audioEvent->getEventName().str(), audioEvent->getVolume(), m_audioSettings->m_minVolume, audioEvent->getFilename().str());
 
 	// cull muted audio
 	if (audioEvent->getVolume() < m_audioSettings->m_minVolume) {
-		printf("[GameAudio] addAudioEvent: culled due to muting\n");
+		GX_TRACE_LOG("[GameAudio] addAudioEvent: culled due to muting\n");
 		releaseAudioEventRTS(audioEvent);
 		return AHSV_Muted;
 	}
 
 	if (soundType == AT_Music)
 	{
-		printf("[GameAudio] addAudioEvent: dispatching to Music\n");
+		GX_TRACE_LOG("[GameAudio] addAudioEvent: dispatching to Music\n");
 		m_music->addAudioEvent(audioEvent);
 	}
 	else
 	{
-		printf("[GameAudio] addAudioEvent: dispatching to Sound\n");
+		GX_TRACE_LOG("[GameAudio] addAudioEvent: dispatching to Sound\n");
 		//Possible to nuke audioEvent inside.
 		m_sound->addAudioEvent(audioEvent);
 	}

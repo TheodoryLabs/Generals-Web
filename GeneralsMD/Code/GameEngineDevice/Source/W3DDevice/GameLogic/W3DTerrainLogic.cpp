@@ -28,6 +28,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "Common/GameMemory.h"
+#include <Utility/gx_trace.h>
 #include "W3DDevice/GameClient/HeightMap.h"
 #include "W3DDevice/GameLogic/W3DTerrainLogic.h"
 #include "W3DDevice/GameClient/WorldHeightMap.h"
@@ -112,7 +113,7 @@ Note - if query is true, we are  */
 //-------------------------------------------------------------------------------------------------
 Bool W3DTerrainLogic::loadMap( AsciiString filename , Bool query )
 {
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) && GX_TRACE_LOGGING
 #define GX_W3D(tag) do { \
 	FILE *_t = fopen("/gx_trace.log", "a"); \
 	if (_t) { fprintf(_t, "GX-TRACE: W3DTerrainLogic::loadMap:%s file='%s' query=%d\n", \

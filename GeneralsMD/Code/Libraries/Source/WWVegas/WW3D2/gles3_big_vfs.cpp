@@ -10,6 +10,7 @@
 #if defined(__EMSCRIPTEN__)
 
 #include "gles3_big_vfs.h"
+#include <Utility/gx_trace.h>
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -439,14 +440,8 @@ bool BigVFS::Read_File_Sync(const char *path, void **out_data,
 
   // GX-TRACE — record the fetch right before it suspends Asyncify so we
   // can identify which file is the last one before a freeze.
-  {
-    FILE *t = fopen("/gx_trace.log", "a");
-    if (t) {
-      fprintf(t, "BigVFS BEFORE-FETCH path='%s' offset=%u size=%u\n",
-              path, entry->offset, entry->size);
-      fclose(t);
-    }
-  }
+  GX_TRACE_FILE_LOG("BigVFS BEFORE-FETCH path='%s' offset=%u size=%u\n",
+                    path, entry->offset, entry->size);
 
   // Fetch the file data.  Retry once on transient failure (Asyncify state
   // can be transiently corrupted when two async chains call Fetch_Range_JS
@@ -462,14 +457,8 @@ bool BigVFS::Read_File_Sync(const char *path, void **out_data,
                                 entry->offset + entry->size - 1, data_copy);
   }
 
-  {
-    FILE *t = fopen("/gx_trace.log", "a");
-    if (t) {
-      fprintf(t, "BigVFS AFTER-FETCH path='%s' bytes_read=%d\n",
-              path, bytes_read);
-      fclose(t);
-    }
-  }
+  GX_TRACE_FILE_LOG("BigVFS AFTER-FETCH path='%s' bytes_read=%d\n",
+                    path, bytes_read);
 
   if (bytes_read <= 0) {
     fprintf(stderr,

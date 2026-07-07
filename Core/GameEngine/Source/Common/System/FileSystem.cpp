@@ -46,6 +46,7 @@
 //----------------------------------------------------------------------------
 
 #include "PreRTS.h"
+#include <Utility/gx_trace.h>
 #include "Common/file.h"
 #include "Common/FileSystem.h"
 
@@ -175,7 +176,7 @@ File*		FileSystem::openFile( const Char *filename, Int access, size_t bufferSize
 	USE_PERF_TIMER(FileSystem)
 	File *file = nullptr;
 
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) && GX_TRACE_LOGGING
 	// GX-TRACE — only log map-related opens to keep noise down. The WHM/
 	// ParseSize tracers do the precise localisation; everything else is
 	// just confirming the high-level flow.
@@ -235,7 +236,7 @@ File*		FileSystem::openFile( const Char *filename, Int access, size_t bufferSize
 		file = TheArchiveFileSystem->openFile( filename, 0, instance );
 	}
 
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) && GX_TRACE_LOGGING
 	if (filename) {
 		bool log_it = false;
 		for (const char *p = filename; *p; ++p) {

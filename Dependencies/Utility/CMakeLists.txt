@@ -3,6 +3,7 @@ set(UTILITY_SRC
     Utility/CppMacros.h
     Utility/endian_compat.h
     Utility/fstream_adapter.h
+    Utility/gx_trace.h
     Utility/hash_map_adapter.h
     Utility/intrin_compat.h
     Utility/iostream_adapter.h

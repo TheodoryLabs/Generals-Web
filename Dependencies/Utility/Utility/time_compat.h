@@ -27,14 +27,20 @@ static inline MMRESULT timeEndPeriod(int) { return TIMERR_NOERROR; }
 
 #include <stdio.h>
 
+#include "gx_trace.h"
+
 inline unsigned int timeGetTime()
 {
   struct timespec ts;
   int ret = clock_gettime(CLOCK_MONOTONIC, &ts);
+#if GX_TRACE_LOGGING
   static int count = 0;
   if (count++ % 100 == 0) {
-    fprintf(stderr, "TIMEGETTIME-RAW: ret=%d, tv_sec=%lld, tv_nsec=%ld\n", ret, (long long)ts.tv_sec, ts.tv_nsec);
+    GX_TRACE_LOG("TIMEGETTIME-RAW: ret=%d, tv_sec=%lld, tv_nsec=%ld\n", ret, (long long)ts.tv_sec, ts.tv_nsec);
   }
+#else
+  (void)ret;
+#endif
   return ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 inline unsigned int GetTickCount()

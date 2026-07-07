@@ -1,4 +1,5 @@
 #include "mss/mss.h"
+#include <Utility/gx_trace.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -216,16 +217,16 @@ EM_JS(void, AILBridge_init, (), {
             samples: {},
             
             init() {
-                console.log("[AILBridge] init() called");
+                window.gxAudioVerbose && console.log("[AILBridge] init() called");
                 if (!this.audioContext) {
                     this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    console.log("[AILBridge] AudioContext created, state:", this.audioContext.state);
+                    window.gxAudioVerbose && console.log("[AILBridge] AudioContext created, state:", this.audioContext.state);
                     if (window['Module']) {
                         if (!window['Module']['SDL2']) window['Module']['SDL2'] = {};
                         window['Module']['SDL2']['audioContext'] = this.audioContext;
                     }
                 } else {
-                    console.log("[AILBridge] AudioContext already exists, state:", this.audioContext.state);
+                    window.gxAudioVerbose && console.log("[AILBridge] AudioContext already exists, state:", this.audioContext.state);
                 }
             },
             
@@ -257,7 +258,7 @@ EM_JS(void, AILBridge_init, (), {
             },
             
             setSampleFile(id, file_ptr, is_3d) {
-                console.log("[AILBridge] setSampleFile() called: id =", id, "file_ptr =", file_ptr, "is_3d =", is_3d);
+                window.gxAudioVerbose && console.log("[AILBridge] setSampleFile() called: id =", id, "file_ptr =", file_ptr, "is_3d =", is_3d);
                 let s = this.getSample(id);
                 s.state = 'decoding';
                 s.playWhenReady = false;
@@ -268,7 +269,7 @@ EM_JS(void, AILBridge_init, (), {
                 }
                 let riffSize = HEAPU32[(file_ptr + 4) >> 2];
                 let totalSize = riffSize + 8;
-                console.log("[AILBridge] setSampleFile: riffSize =", riffSize, "totalSize =", totalSize);
+                window.gxAudioVerbose && console.log("[AILBridge] setSampleFile: riffSize =", riffSize, "totalSize =", totalSize);
                 
                 // WebPort: Detect if this is a dummy WAV header wrapping an MP3/Ogg payload.
                 // If the first 4 bytes are "RIFF" and bytes 8..11 are "WAVE", check if the payload
@@ -286,7 +287,7 @@ EM_JS(void, AILBridge_init, (), {
 
                 let audioBuffer;
                 if (isCompressed) {
-                    console.log("[AILBridge] Detected wrapped compressed audio. Peeling 44-byte WAV header.");
+                    window.gxAudioVerbose && console.log("[AILBridge] Detected wrapped compressed audio. Peeling 44-byte WAV header.");
                     let compressedBytes = new Uint8Array(HEAPU8.buffer, file_ptr + 44, totalSize - 44).slice();
                     audioBuffer = compressedBytes.buffer;
                 } else {
@@ -295,11 +296,11 @@ EM_JS(void, AILBridge_init, (), {
                 }
                 
                 this.audioContext.decodeAudioData(audioBuffer, (buffer) => {
-                    console.log("[AILBridge] decodeAudioData success for sample id =", id, "duration =", buffer.duration);
+                    window.gxAudioVerbose && console.log("[AILBridge] decodeAudioData success for sample id =", id, "duration =", buffer.duration);
                     s.buffer = buffer;
                     s.state = 'ready';
                     if (s.playWhenReady) {
-                        console.log("[AILBridge] playing deferred sample id =", id);
+                        window.gxAudioVerbose && console.log("[AILBridge] playing deferred sample id =", id);
                         this.play(id, is_3d, s.loop);
                     }
                 }, (err) => {
@@ -309,7 +310,7 @@ EM_JS(void, AILBridge_init, (), {
             },
             
             setStreamFile(id, file_ptr, size) {
-                console.log("[AILBridge] setStreamFile() called: id =", id, "file_ptr =", file_ptr, "size =", size);
+                window.gxAudioVerbose && console.log("[AILBridge] setStreamFile() called: id =", id, "file_ptr =", file_ptr, "size =", size);
                 let s = this.getSample(id + 1000);
                 s.state = 'decoding';
                 s.playWhenReady = false;
@@ -340,7 +341,7 @@ EM_JS(void, AILBridge_init, (), {
                 
                 audio.addEventListener('loadedmetadata', () => {
                     s.duration = audio.duration;
-                    console.log("[AILBridge] Stream id =", id, "metadata loaded: duration =", s.duration);
+                    window.gxAudioVerbose && console.log("[AILBridge] Stream id =", id, "metadata loaded: duration =", s.duration);
                 });
                 
                 try {
@@ -351,17 +352,17 @@ EM_JS(void, AILBridge_init, (), {
                 
                 s.state = 'ready';
                 if (s.playWhenReady) {
-                    console.log("[AILBridge] playing deferred stream id =", id);
+                    window.gxAudioVerbose && console.log("[AILBridge] playing deferred stream id =", id);
                     this.play(id + 1000, 0, s.loop);
                 }
             },
             
             play(id, is_3d, loop) {
-                console.log("[AILBridge] play() called: id =", id, "is_3d =", is_3d, "loop =", loop);
+                window.gxAudioVerbose && console.log("[AILBridge] play() called: id =", id, "is_3d =", is_3d, "loop =", loop);
                 let s = this.getSample(id);
                 s.loop = loop;
                 if (s.state === 'decoding') {
-                    console.log("[AILBridge] sample/stream id =", id, "is still decoding. Will play when ready.");
+                    window.gxAudioVerbose && console.log("[AILBridge] sample/stream id =", id, "is still decoding. Will play when ready.");
                     s.playWhenReady = true;
                     return;
                 }
@@ -372,9 +373,9 @@ EM_JS(void, AILBridge_init, (), {
                 
                 let ctx = this.audioContext;
                 if (ctx.state === 'suspended') {
-                    console.log("[AILBridge] AudioContext is suspended, attempting to resume...");
+                    window.gxAudioVerbose && console.log("[AILBridge] AudioContext is suspended, attempting to resume...");
                     ctx.resume().then(() => {
-                        console.log("[AILBridge] AudioContext resumed successfully.");
+                        window.gxAudioVerbose && console.log("[AILBridge] AudioContext resumed successfully.");
                     });
                 }
                 
@@ -385,7 +386,7 @@ EM_JS(void, AILBridge_init, (), {
                         console.warn("[AILBridge] stream id =", id, "audio or mediaSourceNode is missing!");
                         return;
                     }
-                    console.log("[AILBridge] resetting and playing stream for id =", id);
+                    window.gxAudioVerbose && console.log("[AILBridge] resetting and playing stream for id =", id);
                     try {
                         s.audio.pause();
                         s.audio.currentTime = 0;
@@ -416,7 +417,7 @@ EM_JS(void, AILBridge_init, (), {
                         lastNode.connect(panner);
                         lastNode = panner;
                         s.pannerNode = panner;
-                        console.log("[AILBridge] Configured 3D panner for stream id =", id, "pos =", [s.x, s.y, s.z]);
+                        window.gxAudioVerbose && console.log("[AILBridge] Configured 3D panner for stream id =", id, "pos =", [s.x, s.y, s.z]);
                     } else {
                         let panner = ctx.createStereoPanner();
                         panner.pan.value = (s.pan - 0.5) * 2.0;
@@ -424,7 +425,7 @@ EM_JS(void, AILBridge_init, (), {
                         lastNode.connect(panner);
                         lastNode = panner;
                         s.pannerNode = panner;
-                        console.log("[AILBridge] Configured Stereo panner for stream id =", id, "pan =", s.pan);
+                        window.gxAudioVerbose && console.log("[AILBridge] Configured Stereo panner for stream id =", id, "pan =", s.pan);
                     }
                     
                     lastNode.connect(gainNode);
@@ -434,7 +435,7 @@ EM_JS(void, AILBridge_init, (), {
                     s.startTime = ctx.currentTime;
                     
                     s.audio.onended = () => {
-                        console.log("[AILBridge] stream.onended fired for id =", id);
+                        window.gxAudioVerbose && console.log("[AILBridge] stream.onended fired for id =", id);
                         if (s.audio) {
                             Module['_AIL_trigger_sample_eos'](id - 1000, 2);
                         }
@@ -450,7 +451,7 @@ EM_JS(void, AILBridge_init, (), {
                         return;
                     }
                     if (s.source) {
-                        console.log("[AILBridge] stopping active source for id =", id);
+                        window.gxAudioVerbose && console.log("[AILBridge] stopping active source for id =", id);
                         try { s.source.stop(); } catch(e) {}
                         s.source = null;
                     }
@@ -481,7 +482,7 @@ EM_JS(void, AILBridge_init, (), {
                         lastNode.connect(panner);
                         lastNode = panner;
                         s.pannerNode = panner;
-                        console.log("[AILBridge] Configured 3D panner for sample id =", id, "pos =", [s.x, s.y, s.z]);
+                        window.gxAudioVerbose && console.log("[AILBridge] Configured 3D panner for sample id =", id, "pos =", [s.x, s.y, s.z]);
                     } else {
                         let panner = ctx.createStereoPanner();
                         panner.pan.value = (s.pan - 0.5) * 2.0;
@@ -489,7 +490,7 @@ EM_JS(void, AILBridge_init, (), {
                         lastNode.connect(panner);
                         lastNode = panner;
                         s.pannerNode = panner;
-                        console.log("[AILBridge] Configured Stereo panner for sample id =", id, "pan =", s.pan);
+                        window.gxAudioVerbose && console.log("[AILBridge] Configured Stereo panner for sample id =", id, "pan =", s.pan);
                     }
                     
                     lastNode.connect(gainNode);
@@ -500,14 +501,14 @@ EM_JS(void, AILBridge_init, (), {
                     s.startTime = ctx.currentTime;
                     
                     source.onended = () => {
-                        console.log("[AILBridge] source.onended fired for id =", id);
+                        window.gxAudioVerbose && console.log("[AILBridge] source.onended fired for id =", id);
                         if (s.source === source) {
                             s.source = null;
                             Module['_AIL_trigger_sample_eos'](id, is_3d ? 1 : 0);
                         }
                     };
                     
-                    console.log("[AILBridge] starting source playback for id =", id);
+                    window.gxAudioVerbose && console.log("[AILBridge] starting source playback for id =", id);
                     source.start(0);
                 }
             },
@@ -697,7 +698,7 @@ void __stdcall AIL_set_3D_sample_playback_rate(H3DSAMPLE sample, int playback_ra
 
 int __stdcall AIL_set_3D_sample_file(H3DSAMPLE sample, const void* file_image) {
     Sample3DState* s = (Sample3DState*)sample;
-    printf("[web_audio_bridge] AIL_set_3D_sample_file: sample=%p, id=%d, file_image=%p\n", (void*)sample, s ? s->id : -1, file_image);
+    GX_TRACE_LOG("[web_audio_bridge] AIL_set_3D_sample_file: sample=%p, id=%d, file_image=%p\n", (void*)sample, s ? s->id : -1, file_image);
     s->file_image = file_image;
     if (file_image) {
         EM_ASM({
@@ -886,7 +887,7 @@ AIL_sample_callback __stdcall AIL_register_EOS_callback(HSAMPLE sample, AIL_samp
 
 void __stdcall AIL_start_stream(HSTREAM stream) {
     StreamState* s = (StreamState*)stream;
-    printf("[web_audio_bridge] AIL_start_stream: stream=%p, id=%d, filename='%s', loop_count=%d\n",
+    GX_TRACE_LOG("[web_audio_bridge] AIL_start_stream: stream=%p, id=%d, filename='%s', loop_count=%d\n",
            (void*)stream, s ? s->id : -1, s ? s->filename : "NULL", s ? s->loop_count : -1);
     s->is_playing = true;
     EM_ASM({
@@ -981,7 +982,7 @@ void __stdcall AIL_stop_sample(HSAMPLE sample) {
 
 void __stdcall AIL_start_sample(HSAMPLE sample) {
     SampleState* s = (SampleState*)sample;
-    printf("[web_audio_bridge] AIL_start_sample: sample=%p, id=%d, loop_count=%d\n",
+    GX_TRACE_LOG("[web_audio_bridge] AIL_start_sample: sample=%p, id=%d, loop_count=%d\n",
            (void*)sample, s ? s->id : -1, s ? s->loop_count : -1);
     s->is_playing = true;
     EM_ASM({
@@ -1289,7 +1290,7 @@ void __stdcall AIL_mem_free_lock(void *ptr) {
 }
 
 HSTREAM __stdcall AIL_open_stream(HDIGDRIVER dig, const char *filename, int stream_mem) {
-    printf("[web_audio_bridge] AIL_open_stream: filename='%s', stream_mem=%d\n", filename, stream_mem);
+    GX_TRACE_LOG("[web_audio_bridge] AIL_open_stream: filename='%s', stream_mem=%d\n", filename, stream_mem);
     for (int i = 0; i < MAX_STREAMS; i++) {
         if (!g_streams[i].allocated) {
             g_streams[i].allocated = true;
@@ -1303,7 +1304,7 @@ HSTREAM __stdcall AIL_open_stream(HDIGDRIVER dig, const char *filename, int stre
 
             uint32_t size = 0;
             char* buf = WebAudioBridge_ReadEntireFile(filename, &size);
-            printf("[web_audio_bridge] AIL_open_stream: WebAudioBridge_ReadEntireFile returned %p, size = %u\n", (void*)buf, size);
+            GX_TRACE_LOG("[web_audio_bridge] AIL_open_stream: WebAudioBridge_ReadEntireFile returned %p, size = %u\n", (void*)buf, size);
             if (buf) {
                 EM_ASM({
                     window.AILBridge.setStreamFile($0, $1, $2);
@@ -1331,8 +1332,12 @@ void __stdcall AIL_quick_set_volume(HAUDIO audio, float volume, float extravol) 
 
 int __stdcall AIL_quick_startup(
     int use_digital, int use_MIDI, unsigned int output_rate, int output_bits, int output_channels) {
-    printf("[web_audio_bridge] AIL_quick_startup: use_digital=%d, use_MIDI=%d, rate=%u, bits=%d, channels=%d\n",
+    GX_TRACE_LOG("[web_audio_bridge] AIL_quick_startup: use_digital=%d, use_MIDI=%d, rate=%u, bits=%d, channels=%d\n",
            use_digital, use_MIDI, output_rate, output_bits, output_channels);
+#if GX_TRACE_LOGGING
+    // Debug builds only: let the AILBridge EM_JS console traces through.
+    EM_ASM({ window.gxAudioVerbose = true; });
+#endif
     AILBridge_init();
     EM_ASM({
         window.AILBridge.init();
@@ -1361,7 +1366,7 @@ char *__stdcall AIL_set_redist_directory(const char *dir) {
 
 int __stdcall AIL_set_sample_file(HSAMPLE sample, const void *file_image, int block) {
     SampleState* s = (SampleState*)sample;
-    printf("[web_audio_bridge] AIL_set_sample_file: sample=%p, id=%d, file_image=%p, block=%d\n",
+    GX_TRACE_LOG("[web_audio_bridge] AIL_set_sample_file: sample=%p, id=%d, file_image=%p, block=%d\n",
            (void*)sample, s ? s->id : -1, file_image, block);
     s->file_image = file_image;
     if (file_image) {
@@ -1413,7 +1418,11 @@ void __stdcall AIL_stream_volume_pan(HSTREAM stream, float *volume, float *pan) 
 }
 
 int __stdcall AIL_startup(void) {
-    printf("[web_audio_bridge] AIL_startup called\n");
+    GX_TRACE_LOG("[web_audio_bridge] AIL_startup called\n");
+#if GX_TRACE_LOGGING
+    // Debug builds only: let the AILBridge EM_JS console traces through.
+    EM_ASM({ window.gxAudioVerbose = true; });
+#endif
     AILBridge_init();
     EM_ASM({
         window.AILBridge.init();
