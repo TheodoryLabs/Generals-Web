@@ -323,6 +323,38 @@
       <div id="gx-toast-bar"><div id="gx-toast-fill"></div></div>
     </div>
 
+    <div id="gx-browser-note" role="alert" style="display:none;position:fixed;left:50%;bottom:16px;transform:translateX(-50%);max-width:640px;z-index:10000;background:var(--gx-bg);color:var(--gx-fg);border:1px solid var(--gx-accent);padding:10px 14px;font-size:12px;letter-spacing:.5px;line-height:1.5">
+      <b>Heads-up:</b> this Chrome version ships a known browser bug (a V8
+      garbage-collector fault, fixed in newer builds) that can crash the tab in
+      large WebAssembly games, typically when a match starts. If that happens:
+      update Chrome, or fully quit it and relaunch with
+      <code>--js-flags=--no-compact</code>.
+      <a href="https://github.com/TheodoryLabs/Generals-Web#known-issues" style="color:var(--gx-fg)">Details</a>
+      <button type="button" style="margin-left:10px;background:none;border:1px solid var(--gx-mute);color:var(--gx-fg);cursor:pointer"
+        onclick="this.parentNode.style.display='none';try{localStorage.setItem('gxV8NoteDismissed','1')}catch(e){}">Got it</button>
+    </div>
+    <script>
+      (function () {
+        try {
+          if (localStorage.getItem('gxV8NoteDismissed')) return;
+        } catch (e) {}
+        function show() { document.getElementById('gx-browser-note').style.display = 'block'; }
+        // Affected: Chrome 149.* and Chrome 150.0.7871.47 or earlier
+        // (the V8 fix ships in the following 150 stable respin).
+        if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+          navigator.userAgentData.getHighEntropyValues(['fullVersionList']).then(function (d) {
+            var e = (d.fullVersionList || []).find(function (b) { return b.brand === 'Google Chrome' || b.brand === 'Chromium'; });
+            if (!e) return;
+            var v = e.version.split('.').map(Number);
+            if (v[0] === 149 || (v[0] === 150 && v[1] === 0 && v[2] === 7871 && v[3] <= 47)) show();
+          }).catch(function () {});
+        } else {
+          var m = / Chrome\/(\d+)\./.exec(navigator.userAgent);
+          if (m && Number(m[1]) === 149) show();
+        }
+      })();
+    </script>
+
     <!-- Virtual cursor for pointer lock mode -->
     <div id="gx-virtual-cursor" style="
       position: fixed;
