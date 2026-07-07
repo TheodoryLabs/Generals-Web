@@ -55,23 +55,100 @@ EM_JS(
           return hit.length;
         }
 
-        const xhr = new XMLHttpRequest();
-        xhr.open('GET', urlStr, false); // false makes it synchronous
-        xhr.setRequestHeader('Range', 'bytes=' + start + '-' + end);
-        xhr.overrideMimeType('text/plain; charset=x-user-defined');
-        xhr.send(null);
+        const doXHR = function(s, e) {
+          const xhr = new XMLHttpRequest();
+          xhr.open('GET', urlStr, false); // false makes it synchronous
+          xhr.setRequestHeader('Range', 'bytes=' + s + '-' + e);
+          xhr.overrideMimeType('text/plain; charset=x-user-defined');
+          xhr.send(null);
+          if (xhr.status !== 200 && xhr.status !== 206) {
+            console.error("Fetch range sync failed with status", xhr.status);
+            return xhr.status;
+          }
+          const responseText = xhr.responseText || "";
+          const byteLen = responseText.length;
+          const u8 = new Uint8Array(byteLen);
+          for (let i = 0; i < byteLen; ++i) {
+            u8[i] = responseText.charCodeAt(i) & 0xff;
+          }
+          return u8;
+        };
 
-        if (xhr.status !== 200 && xhr.status !== 206) {
-          console.error("Fetch range sync failed with status", xhr.status);
-          return -xhr.status;
+        // EXPERIMENT (bisect variant C): readahead chunking. Small requests
+        // (<=512KB) are served from cached 8MB aligned windows, cutting sync
+        // XHR count and responseText/charCodeAt allocation storms ~10-100x
+        // during map load. Window cache is LRU-capped at 96MB.
+        const WIN = 8388608;             // 8 MB window
+        const SMALL = 524288;            // requests <= 512 KB use windows
+        const reqLen = end - start + 1;
+        if (reqLen <= SMALL) {
+          if (!Module.gxWin) Module.gxWin = { map: new Map(), bytes: 0 };
+          const wc = Module.gxWin;
+          const winStart = Math.floor(start / WIN) * WIN;
+          const wkey = urlStr + '|' + winStart;
+          let win = wc.map.get(wkey);
+          if (win !== undefined && (winStart + win.length - 1) < end) {
+            // cached window too short (request crosses window edge): refetch
+            wc.bytes -= win.length;
+            wc.map.delete(wkey);
+            win = undefined;
+          }
+          if (win === undefined) {
+            const winEnd = Math.max(winStart + WIN - 1, end);
+            const got = doXHR(winStart, winEnd); // server clamps to EOF
+            if (typeof got === 'number') return -got;
+            win = got;
+            wc.map.set(wkey, win);
+            wc.bytes += win.length;
+            while (wc.bytes > 100663296 && wc.map.size > 0) {
+              const oldest = wc.map.keys().next().value;
+              wc.bytes -= wc.map.get(oldest).length;
+              wc.map.delete(oldest);
+            }
+          } else {
+            wc.map.delete(wkey); // LRU: move to back
+            wc.map.set(wkey, win);
+          }
+          const lo = start - winStart;
+          const hi = Math.min(end - winStart + 1, win.length);
+          if (hi <= lo) return 0;
+          const slice = win.subarray(lo, hi);
+          HEAPU8.set(slice, buffer);
+          return slice.length;
         }
 
-        const responseText = xhr.responseText || "";
-        const byteLen = responseText.length;
-        const u8 = new Uint8Array(byteLen);
-        for (let i = 0; i < byteLen; ++i) {
-          u8[i] = responseText.charCodeAt(i) & 0xff;
+        // Large requests (full-file loads like EnglishZH.big at match start):
+        // stream in <=4MB sub-ranges written straight into the wasm heap.
+        // Each responseText dies young and small instead of materializing one
+        // giant string — the single-gulp allocation is what tickles the
+        // Chrome 149/150 GC-evacuation bug (see postmortem).
+        const CHUNK = 4194304;
+        if (reqLen > CHUNK) {
+          let written = 0;
+          for (let s = start; s <= end; s += CHUNK) {
+            const e2 = Math.min(s + CHUNK - 1, end);
+            const xhr = new XMLHttpRequest();
+            xhr.open('GET', urlStr, false);
+            xhr.setRequestHeader('Range', 'bytes=' + s + '-' + e2);
+            xhr.overrideMimeType('text/plain; charset=x-user-defined');
+            xhr.send(null);
+            if (xhr.status !== 200 && xhr.status !== 206) {
+              console.error("Fetch range sync failed with status", xhr.status);
+              return written > 0 ? written : -xhr.status;
+            }
+            const t = xhr.responseText || "";
+            for (let i = 0; i < t.length; ++i) {
+              HEAPU8[buffer + written + i] = t.charCodeAt(i) & 0xff;
+            }
+            written += t.length;
+            if (t.length < (e2 - s + 1)) break; // short read at EOF
+          }
+          return written;
         }
+
+        const u8 = doXHR(start, end);
+        if (typeof u8 === 'number') return -u8;
+        const byteLen = u8.length;
 
         if (byteLen <= 4194304) {
           rc.map.set(key, u8);
