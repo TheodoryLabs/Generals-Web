@@ -220,9 +220,9 @@ If you find the browser part impressive, know that it steers 1.7 million lines o
 
 ## Known Issues
 
-- **Chrome 149.0.7827.x (current stable) can crash the tab.** Chrome 149 stable ships a V8 garbage-collector bug (upstream fix landed in V8 on Jul 2, 2026; a Chrome respin is imminent) that can abort the renderer while large WebAssembly apps run. It is probabilistic and hits busy browser profiles hardest. Workarounds until the Chrome update: relaunch Chrome with `--js-flags=--no-compact`, or use Chrome Beta / Chrome 148 / a Chromium fork. Not a bug in this port; tracked in [#15](https://github.com/TheodoryLabs/Generals-Web/issues/15).
+- **Chrome 149 stable and Chrome 150.0.7871.47 can crash the tab.** These Chrome versions ship a V8 garbage-collector bug (a compacting-GC evacuation fault; the fix is in V8 15.0.245.14+, one tag after what Chrome 150 stable shipped with) that can abort the renderer while large WebAssembly apps run. It is probabilistic: heavy allocation, such as starting a match, raises the odds. Since v0.5.2-web the port no longer emits the debug logging that made this much more likely, but the underlying browser bug remains until Chrome respins. Workarounds: fully quit Chrome and relaunch it with `--js-flags=--no-compact` (the flag applies per launch), or use Chrome Beta / a browser with V8 15.0.245.14+. Not a bug in this port; see the [postmortem](docs/web-port/POSTMORTEM-2026-07-07-gc-crash.md).
 - **First map load freezes the tab for a while.** Asset streaming is synchronous by design (see [BigVFS notes](docs/web-port/GOOD-FIRST-ISSUES.md)); the range cache keeps repeats fast, but the first cold load of a map can hold the main thread for tens of seconds. If Chrome offers "Page Unresponsive", choose **Wait**.
-- Frame rate dips as bases grow; draw-call batching is the active fix (issue [#13](https://github.com/TheodoryLabs/Generals-Web/issues/13) area).
+- Frame rate dips as bases grow; draw-call batching is the active fix (see the performance issue on the tracker).
 
 ---
 
