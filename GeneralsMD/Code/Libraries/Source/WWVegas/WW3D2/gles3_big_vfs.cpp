@@ -40,7 +40,9 @@ EM_JS(
         // (archive directories per lookup, evicted files re-read on demand);
         // measured ~120 duplicate fetches of one archive per boot. Each sync
         // XHR blocks the main thread, so repeats are pure freeze time. Cache
-        // entries up to 4 MB with a ~192 MB LRU cap.
+        // entries up to 4 MB with a ~48 MB LRU cap (kept small: a large
+        // long-lived JS-side cache raises GC compaction pressure, see
+        // docs/web-port/POSTMORTEM-2026-07-07-gc-crash.md).
         // GeneralsX @feature WebPort 2026-07-07 (issue #2)
         if (!Module.gxRC) Module.gxRC = { map: new Map(), bytes: 0 };
         const rc = Module.gxRC;
@@ -74,7 +76,7 @@ EM_JS(
         if (byteLen <= 4194304) {
           rc.map.set(key, u8);
           rc.bytes += byteLen;
-          while (rc.bytes > 201326592 && rc.map.size > 0) {
+          while (rc.bytes > 50331648 && rc.map.size > 0) {
             const oldest = rc.map.keys().next().value;
             rc.bytes -= rc.map.get(oldest).length;
             rc.map.delete(oldest);
